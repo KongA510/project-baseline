@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBaselineStore } from '@/store/baseline'
 import { ElMessage } from 'element-plus'
 import type { CompareRow } from '@/utils/diffEngine'
 import CompareTreeView from '@/components/CompareTreeView.vue'
+import { streamAIAnalysis } from '@/services/aiAnalysis'
+import { exportTaskCompareExcel, exportChangeDetailWord, exportAIAnalysisWord } from '@/services/exportService'
+import { AIAnalysisStatus } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -77,6 +80,111 @@ function formatDate(iso: string): string {
 const showCriticalPath = ref(true)
 const showTaskTree = ref(true)
 const showAiAnalysis = ref(true)
+
+// 导出处理
+const exporting = ref(false)
+
+async function handleExportExcel() {
+  if (!result.value) return
+  try {
+    exporting.value = true
+    exportTaskCompareExcel(result.value, store.snapshot1?.name ?? '基准A', store.snapshot2?.name ?? '对比B')
+    ElMessage.success('任务比对 Excel 导出成功')
+  } catch (e: any) {
+    ElMessage.error(`导出失败: ${e?.message ?? e}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function handleExportChangeWord() {
+  if (!result.value) return
+  try {
+    exporting.value = true
+    await exportChangeDetailWord(result.value, store.snapshot1?.name ?? '基准A', store.snapshot2?.name ?? '对比B')
+    ElMessage.success('变更详情 Word 导出成功')
+  } catch (e: any) {
+    ElMessage.error(`导出失败: ${e?.message ?? e}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function handleExportAIWord() {
+  if (!aiStreamingText.value) {
+    ElMessage.warning('请先完成 AI 分析后再导出')
+    return
+  }
+  try {
+    exporting.value = true
+    await exportAIAnalysisWord(aiStreamingText.value, store.snapshot1?.name ?? '基准A', store.snapshot2?.name ?? '对比B')
+    ElMessage.success('基线比对建议 Word 导出成功')
+  } catch (e: any) {
+    ElMessage.error(`导出失败: ${e?.message ?? e}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
+// AI 分析状态
+const aiAnalyzing = ref(false)
+const aiStreamingText = ref('')
+const aiError = ref('')
+const aiOutputEl = ref<HTMLElement | null>(null)
+
+/** 启动 AI 流式分析 */
+async function startAIAnalysis() {
+  if (!result.value) return
+  aiAnalyzing.value = true
+  aiStreamingText.value = ''
+  aiError.value = ''
+  store.aiAnalysis = { status: AIAnalysisStatus.ANALYZING, chunks: [] }
+
+  await streamAIAnalysis(result.value, {
+    onChunk(text: string) {
+      aiStreamingText.value += text
+      store.appendAIChunk(text)
+      // 自动滚动到底部
+      nextTick(() => {
+        if (aiOutputEl.value) {
+          aiOutputEl.value.scrollTop = aiOutputEl.value.scrollHeight
+        }
+      })
+    },
+    onComplete(fullText: string) {
+      aiAnalyzing.value = false
+      store.completeAIAnalysis()
+    },
+    onError(error: string) {
+      aiAnalyzing.value = false
+      aiError.value = error
+      store.errorAIAnalysis(error)
+      ElMessage.error(`AI 分析失败: ${error}`)
+    },
+  })
+}
+
+// 简单的 markdown → HTML 渲染（处理 **bold** 和换行）
+function renderMarkdown(text: string): string {
+  if (!text) return ''
+  let html = text
+  // **bold** → <strong>bold</strong>
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // 处理标题 ### / ## / #
+  html = html.replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 6px;color:#303133;">$1</h4>')
+  html = html.replace(/^## (.+)$/gm, '<h3 style="margin:14px 0 6px;color:#1a1a2e;">$1</h3>')
+  html = html.replace(/^# (.+)$/gm, '<h2 style="margin:16px 0 8px;color:#1a1a2e;font-size:17px;">$1</h2>')
+  // 处理无序列表
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
+  // 处理有序列表
+  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
+  // 包裹连续的 <li>
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul style="padding-left:20px;margin:4px 0;">$1</ul>')
+  // 处理换行
+  html = html.replace(/\n\n/g, '<br/>')
+  html = html.replace(/\n/g, '<br/>')
+  return html
+}
 </script>
 
 <template>
@@ -96,9 +204,22 @@ const showAiAnalysis = ref(true)
         <el-button @click="router.push('/compare')" text>
           <el-icon><ArrowLeft /></el-icon> 重新选择
         </el-button>
-        <el-button type="primary" plain>
-          <el-icon><Download /></el-icon> 导出报告
-        </el-button>
+        <el-dropdown trigger="click" :disabled="!result">
+          <el-button type="primary" plain :loading="exporting">
+            <el-icon><Download /></el-icon> 导出报告
+            <el-icon style="margin-left: 2px;"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="handleExportExcel">
+                <el-icon><List /></el-icon> 任务计划左右比对 — Excel 表格
+              </el-dropdown-item>
+              <el-dropdown-item @click="handleExportChangeWord">
+                <el-icon><Document /></el-icon> 变更任务字段详情 — Word 文档
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-space>
     </div>
 
@@ -195,7 +316,7 @@ const showAiAnalysis = ref(true)
         </div>
       </el-card>
 
-      <!-- ============ 2. AI 分析（占位） ============ -->
+      <!-- ============ 2. AI 智能分析 ============ -->
       <el-card shadow="hover" style="margin-bottom: 20px;" class="ai-card">
         <template #header>
           <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;"
@@ -203,35 +324,57 @@ const showAiAnalysis = ref(true)
             <div style="display: flex; align-items: center; gap: 8px;">
               <el-icon color="#a855f7" :size="20"><ChatDotRound /></el-icon>
               <span style="font-weight: 600; font-size: 16px;">AI 智能分析</span>
-              <el-tag type="warning" size="small" effect="plain">待接入 API</el-tag>
+              <el-tag v-if="aiAnalyzing" type="warning" size="small" effect="plain">
+                <el-icon class="is-loading"><Loading /></el-icon> 分析中...
+              </el-tag>
+              <el-tag v-else-if="aiStreamingText" type="success" size="small" effect="plain">已完成</el-tag>
+              <el-tag v-else-if="aiError" type="danger" size="small" effect="plain">出错</el-tag>
             </div>
             <el-button text :icon="showAiAnalysis ? 'ArrowUp' : 'ArrowDown'" />
           </div>
         </template>
 
-        <div v-show="showAiAnalysis" style="text-align: center; padding: 40px 20px;">
-          <el-icon :size="48" color="#c0c4cc"><Cpu /></el-icon>
-          <h3 style="color: #909399; margin: 16px 0 8px;">AI 流式分析（待接入）</h3>
-          <p style="color: #b0b8c8; font-size: 13px; max-width: 500px; margin: 0 auto 16px;">
-            后续接入 AI 接口后，此处将对差异结果进行流式分析，逐步输出。
-          </p>
+        <div v-show="showAiAnalysis">
+          <!-- 未开始状态 -->
+          <div v-if="!aiStreamingText && !aiAnalyzing && !aiError" style="text-align: center; padding: 32px 20px;">
+            <el-icon :size="48" color="#a855f7"><Cpu /></el-icon>
+            <h3 style="color: #303133; margin: 16px 0 8px;">AI 智能差异分析</h3>
+            <p style="color: #909399; font-size: 13px; max-width: 500px; margin: 0 auto 20px;">
+              基于 Agnes AI 对基线差异进行智能分析，涵盖关键路径影响、风险识别、资源变化等多维度解读。
+            </p>
+            <el-button type="primary" size="large" @click="startAIAnalysis" :loading="false" style="min-width: 180px;">
+              <el-icon><Cpu /></el-icon> 开始 AI 分析
+            </el-button>
+          </div>
 
-          <div class="ai-summary" style="text-align: left; max-width: 600px; margin: 0 auto;">
-            <div class="ai-bubble">
-              <div class="ai-avatar">AI</div>
-              <div class="ai-text">
-                <p>差异摘要：</p>
-                <ul>
-                  <li>新增 <strong>{{ result.summary.totalAdded }}</strong> 个任务，删除 <strong>{{ result.summary.totalRemoved }}</strong> 个，变更 <strong>{{ result.summary.totalModified }}</strong> 个</li>
-                  <li v-if="result.criticalPathDiff.totalDurationChange !== 0">
-                    关键路径工期变化 <strong :style="{ color: result.criticalPathDiff.totalDurationChange > 0 ? '#f56c6c' : '#67c23a' }">
-                      {{ result.criticalPathDiff.totalDurationChange > 0 ? '+' : '' }}{{ result.criticalPathDiff.totalDurationChange }}天
-                    </strong>
-                  </li>
-                  <li>完成 AI 接口接入后将提供详细的流式分析报告</li>
-                </ul>
-              </div>
+          <!-- 流式输出区域 -->
+          <div v-if="aiStreamingText || aiAnalyzing" class="ai-output-area" ref="aiOutputEl">
+            <div class="ai-output-header">
+              <div class="ai-output-avatar">AI</div>
+              <div class="ai-output-model">Agnes 2.0 Flash</div>
             </div>
+            <div class="ai-output-content" v-html="renderMarkdown(aiStreamingText)"></div>
+            <!-- 光标动画 -->
+            <span v-if="aiAnalyzing" class="ai-cursor-blink">▌</span>
+          </div>
+
+          <!-- 错误状态 -->
+          <div v-if="aiError" style="text-align: center; padding: 20px;">
+            <el-result icon="error" title="AI 分析失败" :sub-title="aiError">
+              <template #extra>
+                <el-button type="primary" @click="startAIAnalysis">重新分析</el-button>
+              </template>
+            </el-result>
+          </div>
+
+          <!-- 完成后可重新分析 / 导出 -->
+          <div v-if="aiStreamingText && !aiAnalyzing && !aiError" style="text-align: center; margin-top: 12px; display: flex; gap: 12px; justify-content: center;">
+            <el-button text size="small" @click="startAIAnalysis">
+              <el-icon><Refresh /></el-icon> 重新分析
+            </el-button>
+            <el-button type="primary" size="small" @click="handleExportAIWord">
+              <el-icon><Download /></el-icon> 导出基线比对建议
+            </el-button>
           </div>
         </div>
       </el-card>
@@ -309,22 +452,80 @@ const showAiAnalysis = ref(true)
 
 .ai-card { border-top: 3px solid #a855f7; }
 
-.ai-summary { margin-top: 16px; }
-.ai-bubble { display: flex; gap: 12px; }
-.ai-avatar {
+/* AI 流式输出区域 */
+.ai-output-area {
+  max-height: 500px;
+  overflow-y: auto;
+  background: #faf5ff;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.ai-output-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e9d5ff;
+}
+
+.ai-output-avatar {
   width: 32px; height: 32px; border-radius: 8px;
   background: linear-gradient(135deg, #a855f7, #7c3aed);
   color: #fff; display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700; flex-shrink: 0;
 }
-.ai-text {
-  flex: 1; background: #fff; border-radius: 8px; padding: 12px 16px;
-  font-size: 13px; line-height: 1.8; color: #303133;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+
+.ai-output-model {
+  font-size: 12px; color: #7c3aed; font-weight: 500;
 }
-.ai-text ul { padding-left: 20px; margin: 8px 0; }
-.ai-text ul li { margin-bottom: 4px; }
-.ai-text strong { color: #409eff; }
+
+.ai-output-content {
+  flex: 1; font-size: 14px; line-height: 1.9; color: #374151;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+.ai-output-content :deep(strong) {
+  color: #6d28d9; font-weight: 600;
+}
+
+.ai-output-content :deep(h2), .ai-output-content :deep(h3), .ai-output-content :deep(h4) {
+  color: #1a1a2e;
+}
+
+.ai-output-content :deep(li) {
+  margin-bottom: 2px;
+}
+
+.ai-output-content :deep(ul) {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+/* 流式光标闪烁动画 */
+.ai-cursor-blink {
+  display: inline-block; color: #a855f7; font-weight: 700; font-size: 16px;
+  animation: blink 1s step-end infinite;
+  vertical-align: middle; margin-left: 1px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* AI 输出区域滚动条 */
+.ai-output-area::-webkit-scrollbar {
+  width: 6px;
+}
+.ai-output-area::-webkit-scrollbar-thumb {
+  background: #d4bfff;
+  border-radius: 3px;
+}
+.ai-output-area::-webkit-scrollbar-thumb:hover {
+  background: #a855f7;
+}
 
 /* 变更详情滚动容器 — 限制高度防止过长影响后面AI分析加载 */
 .changes-scroll-container {

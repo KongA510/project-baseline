@@ -10,4 +10,13 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    proxy: {
+      '/api/agnes': {
+        target: 'https://apihub.agnes-ai.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/agnes/, '/v1/chat/completions'),
+      },
+    },
+  },
 })
