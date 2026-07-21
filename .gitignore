@@ -13,3 +13,6 @@ dist/
 .env
 .env.local
 .env.*.local
+
+# 不推送包含敏感信息的文件
+CLAUDE.md
