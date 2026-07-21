@@ -12,7 +12,7 @@
 import { computed } from 'vue'
 import {
   type CompareRow,
-  type ProjectTask,
+  type TaskNode,
   type TaskFieldChange,
   DiffType,
   TaskStatus,
@@ -25,8 +25,9 @@ const props = defineProps<{
   expandLevel?: number
 }>()
 
-/** 展平树为可渲染的列表行（带展开/折叠状态） */
+/** 展平树为可渲染的列表行（带展开/折叠状态），最大深度 10 防止死循环 */
 function flattenTree(rows: CompareRow[], level: number = 0): CompareRow[] {
+  if (level > 10) return []
   const result: CompareRow[] = []
   for (const row of rows) {
     result.push(row)
@@ -42,7 +43,7 @@ const flatRows = computed(() => {
 })
 
 /** 获取任务（优先右再左） */
-function getTask(row: CompareRow): ProjectTask | null {
+function getTask(row: CompareRow): TaskNode | null {
   return row.rightTask ?? row.leftTask
 }
 
@@ -71,7 +72,7 @@ function rowHoverClass(row: CompareRow): string {
 }
 
 /** 获取前置依赖文本 */
-function getPredLabel(task: ProjectTask | null): string {
+function getPredLabel(task: TaskNode | null): string {
   if (!task || task.predecessors.length === 0) return '—'
   return task.predecessors.map(p => p.predecessorId).join(', ')
 }
@@ -93,9 +94,15 @@ function fd(d: string | null | undefined): string {
   return d
 }
 
-/** 字段是否变更 */
+/** 字段是否变更（左侧基准：红色，右侧对比：橙色） */
 function fieldChanged(row: CompareRow, field: string): boolean {
   return row.changes.some(c => c.field === field)
+}
+
+/** 变更字段标记 class — 左侧（旧值/被修改）红色，右侧（新值/修改后）橙色 */
+function changedClass(row: CompareRow, field: string, side: 'left' | 'right'): string {
+  if (!fieldChanged(row, field)) return ''
+  return side === 'left' ? 'field-removed' : 'field-added'
 }
 </script>
 
@@ -144,9 +151,9 @@ function fieldChanged(row: CompareRow, field: string): boolean {
               </span>
 
               <span class="task-icon">
-                <el-icon v-if="row.leftTask.isMilestone" color="#f56c6c" :size="14"><Flag /></el-icon>
-                <el-icon v-else-if="row.leftTask.type === 'SUMMARY'" color="#e6a23c" :size="14"><FolderOpened /></el-icon>
-                <el-icon v-else color="#409eff" :size="14"><Document /></el-icon>
+                <el-icon v-if="row.leftTask.isMilestone" class="milestone-icon" :size="16"><Trophy /></el-icon>
+                <el-icon v-else-if="row.leftTask.type === 'SUMMARY'" color="#c8813a" :size="14"><FolderOpened /></el-icon>
+                <el-icon v-else color="#5b9bd5" :size="14"><Document /></el-icon>
               </span>
 
               <span class="task-wbs">{{ row.leftTask.wbs }}</span>
@@ -157,36 +164,52 @@ function fieldChanged(row: CompareRow, field: string): boolean {
                 前继:{{ getPredLabel(row.leftTask) }}
               </span>
 
-              <el-tag :type="getStatusType(row.leftTask.status)" size="small" effect="light"
-                :class="{ 'field-changed': fieldChanged(row, 'status') }">
-                {{ formatTaskStatus(row.leftTask.status) }}
-              </el-tag>
-
-              <span class="task-meta" :class="{ 'field-changed': fieldChanged(row, 'duration') }">
-                {{ row.leftTask.duration }}天
-              </span>
-
-              <span class="task-meta">
-                <el-progress
-                  :percentage="row.leftTask.percentComplete"
-                  :stroke-width="5"
-                  :color="row.leftTask.percentComplete === 100 ? '#67c23a' : '#409eff'"
-                  style="width: 60px; display: inline-flex;"
-                />
-              </span>
-
-              <span class="task-meta task-dates" :class="{ 'field-changed': fieldChanged(row, 'plannedStartDate') || fieldChanged(row, 'plannedEndDate') }">
-                {{ fd(row.leftTask.plannedStartDate) }} ~ {{ fd(row.leftTask.plannedEndDate) }}
-              </span>
+              <!-- SUMMARY 节点只显示 duration + progress + dates，不显示 status 和 assignedTo -->
+              <template v-if="row.leftTask.type === 'SUMMARY'">
+                <span class="task-meta" :class="changedClass(row, 'duration', 'left')">
+                  {{ row.leftTask.duration }}天
+                </span>
+                <span class="task-meta">
+                  <el-progress
+                    :percentage="row.leftTask.percentComplete"
+                    :stroke-width="5"
+                    :color="row.leftTask.percentComplete === 100 ? '#67c23a' : '#409eff'"
+                    style="width: 60px; display: inline-flex;"
+                  />
+                </span>
+                <span class="task-meta task-dates" :class="changedClass(row, 'plannedStartDate', 'left') + ' ' + changedClass(row, 'plannedEndDate', 'left')">
+                  {{ fd(row.leftTask.plannedStartDate) }} ~ {{ fd(row.leftTask.plannedEndDate) }}
+                </span>
+              </template>
+              <template v-else>
+                <el-tag :type="getStatusType(row.leftTask.status)" size="small" effect="light"
+                  :class="changedClass(row, 'status', 'left')">
+                  {{ formatTaskStatus(row.leftTask.status) }}
+                </el-tag>
+                <span class="task-meta" :class="changedClass(row, 'duration', 'left')">
+                  {{ row.leftTask.duration }}天
+                </span>
+                <span class="task-meta">
+                  <el-progress
+                    :percentage="row.leftTask.percentComplete"
+                    :stroke-width="5"
+                    :color="row.leftTask.percentComplete === 100 ? '#67c23a' : '#409eff'"
+                    style="width: 60px; display: inline-flex;"
+                  />
+                </span>
+                <span class="task-meta task-dates" :class="changedClass(row, 'plannedStartDate', 'left') + ' ' + changedClass(row, 'plannedEndDate', 'left')">
+                  {{ fd(row.leftTask.plannedStartDate) }} ~ {{ fd(row.leftTask.plannedEndDate) }}
+                </span>
+                <span class="task-meta" :class="changedClass(row, 'assignedToName', 'left') || changedClass(row, 'assignedToId', 'left') || changedClass(row, 'assignedToRole', 'left') ? 'field-removed' : ''">
+                  {{ row.leftTask.assignedTo?.name ?? '未分配' }}
+                  <span v-if="row.leftTask.assignedTo?.role" class="task-role">({{ row.leftTask.assignedTo.role }})</span>
+                </span>
+              </template>
 
               <el-tag v-if="row.leftTask.cpmDates.isCritical" type="danger" size="small" effect="dark"
-                :class="{ 'field-changed': fieldChanged(row, 'cpmDates.isCritical') }">
+                :class="changedClass(row, 'cpmDates.isCritical', 'left')">
                 关键
               </el-tag>
-
-              <span class="task-meta" :class="{ 'field-changed': fieldChanged(row, 'assignedTo') }">
-                {{ row.leftTask.assignedTo?.name ?? '未分配' }}
-              </span>
             </div>
           </template>
           <template v-else>
@@ -219,9 +242,9 @@ function fieldChanged(row: CompareRow, field: string): boolean {
               </span>
 
               <span class="task-icon">
-                <el-icon v-if="row.rightTask.isMilestone" color="#f56c6c" :size="14"><Flag /></el-icon>
-                <el-icon v-else-if="row.rightTask.type === 'SUMMARY'" color="#e6a23c" :size="14"><FolderOpened /></el-icon>
-                <el-icon v-else color="#409eff" :size="14"><Document /></el-icon>
+                <el-icon v-if="row.rightTask.isMilestone" class="milestone-icon" :size="16"><Trophy /></el-icon>
+                <el-icon v-else-if="row.rightTask.type === 'SUMMARY'" color="#c8813a" :size="14"><FolderOpened /></el-icon>
+                <el-icon v-else color="#5b9bd5" :size="14"><Document /></el-icon>
               </span>
 
               <span class="task-wbs">{{ row.rightTask.wbs }}</span>
@@ -232,36 +255,52 @@ function fieldChanged(row: CompareRow, field: string): boolean {
                 前继:{{ getPredLabel(row.rightTask) }}
               </span>
 
-              <el-tag :type="getStatusType(row.rightTask.status)" size="small" effect="light"
-                :class="{ 'field-changed': fieldChanged(row, 'status') }">
-                {{ formatTaskStatus(row.rightTask.status) }}
-              </el-tag>
-
-              <span class="task-meta" :class="{ 'field-changed': fieldChanged(row, 'duration') }">
-                {{ row.rightTask.duration }}天
-              </span>
-
-              <span class="task-meta">
-                <el-progress
-                  :percentage="row.rightTask.percentComplete"
-                  :stroke-width="5"
-                  :color="row.rightTask.percentComplete === 100 ? '#67c23a' : '#409eff'"
-                  style="width: 60px; display: inline-flex;"
-                />
-              </span>
-
-              <span class="task-meta task-dates" :class="{ 'field-changed': fieldChanged(row, 'plannedStartDate') || fieldChanged(row, 'plannedEndDate') }">
-                {{ fd(row.rightTask.plannedStartDate) }} ~ {{ fd(row.rightTask.plannedEndDate) }}
-              </span>
+              <!-- SUMMARY 节点只显示 duration + progress + dates -->
+              <template v-if="row.rightTask.type === 'SUMMARY'">
+                <span class="task-meta" :class="changedClass(row, 'duration', 'right')">
+                  {{ row.rightTask.duration }}天
+                </span>
+                <span class="task-meta">
+                  <el-progress
+                    :percentage="row.rightTask.percentComplete"
+                    :stroke-width="5"
+                    :color="row.rightTask.percentComplete === 100 ? '#67c23a' : '#409eff'"
+                    style="width: 60px; display: inline-flex;"
+                  />
+                </span>
+                <span class="task-meta task-dates" :class="changedClass(row, 'plannedStartDate', 'right') + ' ' + changedClass(row, 'plannedEndDate', 'right')">
+                  {{ fd(row.rightTask.plannedStartDate) }} ~ {{ fd(row.rightTask.plannedEndDate) }}
+                </span>
+              </template>
+              <template v-else>
+                <el-tag :type="getStatusType(row.rightTask.status)" size="small" effect="light"
+                  :class="changedClass(row, 'status', 'right')">
+                  {{ formatTaskStatus(row.rightTask.status) }}
+                </el-tag>
+                <span class="task-meta" :class="changedClass(row, 'duration', 'right')">
+                  {{ row.rightTask.duration }}天
+                </span>
+                <span class="task-meta">
+                  <el-progress
+                    :percentage="row.rightTask.percentComplete"
+                    :stroke-width="5"
+                    :color="row.rightTask.percentComplete === 100 ? '#67c23a' : '#409eff'"
+                    style="width: 60px; display: inline-flex;"
+                  />
+                </span>
+                <span class="task-meta task-dates" :class="changedClass(row, 'plannedStartDate', 'right') + ' ' + changedClass(row, 'plannedEndDate', 'right')">
+                  {{ fd(row.rightTask.plannedStartDate) }} ~ {{ fd(row.rightTask.plannedEndDate) }}
+                </span>
+                <span class="task-meta" :class="changedClass(row, 'assignedToName', 'right') || changedClass(row, 'assignedToId', 'right') || changedClass(row, 'assignedToRole', 'right') ? 'field-added' : ''">
+                  {{ row.rightTask.assignedTo?.name ?? '未分配' }}
+                  <span v-if="row.rightTask.assignedTo?.role" class="task-role">({{ row.rightTask.assignedTo.role }})</span>
+                </span>
+              </template>
 
               <el-tag v-if="row.rightTask.cpmDates.isCritical" type="danger" size="small" effect="dark"
-                :class="{ 'field-changed': fieldChanged(row, 'cpmDates.isCritical') }">
+                :class="changedClass(row, 'cpmDates.isCritical', 'right')">
                 关键
               </el-tag>
-
-              <span class="task-meta" :class="{ 'field-changed': fieldChanged(row, 'assignedTo') }">
-                {{ row.rightTask.assignedTo?.name ?? '未分配' }}
-              </span>
             </div>
           </template>
           <template v-else>
@@ -357,7 +396,7 @@ function fieldChanged(row: CompareRow, field: string): boolean {
 }
 .compare-row.hover-added:hover { background: #eaf7ea; }
 .compare-row.hover-removed:hover { background: #fef0f0; }
-.compare-row.hover-modified:hover { background: #fdf3e5; }
+.compare-row.hover-modified:hover { background: #f5f7fa; }
 .compare-row.hover-unchanged:hover { background: #f5f7fa; }
 
 /* ========== 单元格 ========== */
@@ -381,8 +420,9 @@ function fieldChanged(row: CompareRow, field: string): boolean {
 .bg-removed {
   background: #fef0f0;
 }
+/* 变更行不用整行背景，只用圆点+字段红色标记 */
 .bg-modified {
-  background: #fdf6ec;
+  background: transparent;
 }
 .bg-empty {
   background: #fafafa;
@@ -463,11 +503,30 @@ function fieldChanged(row: CompareRow, field: string): boolean {
   font-size: 11px;
 }
 
-/* 变更字段高亮 */
-.field-changed {
+.task-role {
+  font-size: 10px;
+  color: #909399;
+  font-style: italic;
+}
+
+/* 里程碑图标 — 柔和绿色 */
+.milestone-icon {
+  color: #7ecb76;
+}
+
+/* 变更字段高亮 — 左侧（旧值/被修改方）红色，右侧（新值/修改后方）橙色 */
+.field-removed {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(245, 108, 108, 0.12);
+  border: 1px solid #f56c6c;
+  color: #f56c6c;
+}
+.field-added {
   padding: 1px 4px;
   border-radius: 3px;
   background: rgba(230, 162, 60, 0.15);
-  border: 1px dashed #e6a23c;
+  border: 1px solid #e6a23c;
+  color: #e6a23c;
 }
 </style>

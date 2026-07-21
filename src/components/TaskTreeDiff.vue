@@ -9,7 +9,7 @@
  *   - 默认 = 无变化
  */
 import { computed } from 'vue'
-import { type TaskDiffResult, DiffType, type TaskFieldChange, type ProjectTask } from '@/types'
+import { type TaskDiffResult, DiffType, type TaskFieldChange, type TaskNode } from '@/types'
 import { getDiffLabel, formatTaskStatus } from '@/utils/diffEngine'
 
 const props = defineProps<{
@@ -31,18 +31,18 @@ function rowClassName(diffType: DiffType): string {
 }
 
 /** 获取任务（旧或新，优先新） */
-function getTask(diff: TaskDiffResult): ProjectTask | null {
+function getTask(diff: TaskDiffResult): TaskNode | null {
   return diff.newTask ?? diff.oldTask
 }
 
 /** 获取前置依赖显示文本 */
-function getPredecessorLabel(task: ProjectTask | null): string {
+function getPredecessorLabel(task: TaskNode | null): string {
   if (!task || task.predecessors.length === 0) return '—'
   return task.predecessors.map(p => p.predecessorId).join(', ')
 }
 
 /** 获取排序序号 N */
-function getSortOrder(task: ProjectTask | null): number {
+function getSortOrder(task: TaskNode | null): number {
   return task?.sortOrder ?? 0
 }
 
@@ -105,9 +105,9 @@ function isFieldChanged(diff: TaskDiffResult, field: string): boolean {
 
           <!-- 任务名称 -->
           <span class="task-name">
-            <el-icon v-if="getTask(diff)?.isMilestone" color="#f56c6c"><Flag /></el-icon>
-            <el-icon v-else-if="getTask(diff)?.type === 'SUMMARY'" color="#e6a23c"><FolderOpened /></el-icon>
-            <el-icon v-else color="#409eff"><Document /></el-icon>
+            <el-icon v-if="getTask(diff)?.isMilestone" class="milestone-icon" :size="16"><Trophy /></el-icon>
+            <el-icon v-else-if="getTask(diff)?.type === 'SUMMARY'" color="#c8813a"><FolderOpened /></el-icon>
+            <el-icon v-else color="#5b9bd5"><Document /></el-icon>
             {{ diff.taskName }}
           </span>
 
@@ -245,9 +245,9 @@ function isFieldChanged(diff: TaskDiffResult, field: string): boolean {
         </div>
       </div>
 
-      <!-- 递归渲染子任务 -->
+      <!-- 递归渲染子任务（最大 10 层） -->
       <TaskTreeDiff
-        v-if="diff.childrenDiffs.length > 0"
+        v-if="diff.childrenDiffs.length > 0 && level < 10"
         :diffs="diff.childrenDiffs"
         :snapshot-label="snapshotLabel"
         :level="level + 1"
@@ -330,6 +330,11 @@ function isFieldChanged(diff: TaskDiffResult, field: string): boolean {
 
 .task-dates {
   font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* 里程碑图标 — 柔和绿色 */
+.milestone-icon {
+  color: #7ecb76;
 }
 
 .field-changed {

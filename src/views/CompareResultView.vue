@@ -32,6 +32,19 @@ onMounted(() => {
 const result = computed(() => store.comparisonResult)
 const compareRows = computed(() => store.comparisonResult?.compareRows ?? [])
 
+/** 递归收集所有有变更的行（包含 children 中的变更），最大深度 10 防止死循环 */
+function collectChangedRows(rows: CompareRow[] | undefined, depth = 0): CompareRow[] {
+  if (!rows || depth > 10) return []
+  const result: CompareRow[] = []
+  for (const r of rows) {
+    if (r.changes?.length > 0) result.push(r)
+    if (r.children?.length > 0) result.push(...collectChangedRows(r.children, depth + 1))
+  }
+  return result
+}
+
+const allChangedRows = computed(() => collectChangedRows(compareRows.value))
+
 // 差异统计
 const diffStats = computed(() => {
   if (!result.value) return []
@@ -97,13 +110,13 @@ const showAiAnalysis = ref(true)
             <template #header>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <el-tag type="primary" effect="dark" round>基准 A</el-tag>
-                <span style="font-weight: 600;">{{ store.snapshot1?.meta.name }}</span>
+                <span style="font-weight: 600;">{{ store.snapshot1?.name }}</span>
                 <span style="font-size: 12px; color: #909399;">
-                  {{ formatDate(store.snapshot1?.meta.createdAt ?? '') }}
+                  {{ formatDate(store.snapshot1?.createdAt ?? '') }}
                 </span>
               </div>
             </template>
-            <span style="font-size: 13px; color: #606266;">{{ store.snapshot1?.meta.description }}</span>
+            <span style="font-size: 13px; color: #606266;">{{ store.snapshot1?.description }}</span>
           </el-card>
         </el-col>
         <el-col :span="12">
@@ -111,13 +124,13 @@ const showAiAnalysis = ref(true)
             <template #header>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <el-tag type="success" effect="dark" round>对比 B</el-tag>
-                <span style="font-weight: 600;">{{ store.snapshot2?.meta.name }}</span>
+                <span style="font-weight: 600;">{{ store.snapshot2?.name }}</span>
                 <span style="font-size: 12px; color: #909399;">
-                  {{ formatDate(store.snapshot2?.meta.createdAt ?? '') }}
+                  {{ formatDate(store.snapshot2?.createdAt ?? '') }}
                 </span>
               </div>
             </template>
-            <span style="font-size: 13px; color: #606266;">{{ store.snapshot2?.meta.description }}</span>
+            <span style="font-size: 13px; color: #606266;">{{ store.snapshot2?.description }}</span>
           </el-card>
         </el-col>
       </el-row>
@@ -152,29 +165,31 @@ const showAiAnalysis = ref(true)
           <CompareTreeView :rows="compareRows" />
 
           <!-- 变更详情表 -->
-          <div v-if="compareRows.some((r: CompareRow) => r.changes.length > 0)" style="margin-top: 24px;">
+          <div v-if="allChangedRows.length > 0" style="margin-top: 24px;">
             <h4 style="margin-bottom: 12px; color: #e6a23c;">
-              <el-icon><WarningFilled /></el-icon> 变更任务字段详情
+              <el-icon><WarningFilled /></el-icon> 变更任务字段详情（共 {{ allChangedRows.length }} 项）
             </h4>
-            <div v-for="row in compareRows.filter((r: CompareRow) => r.changes.length > 0)" :key="row.uid" style="margin-bottom: 16px;">
+            <div class="changes-scroll-container">
+            <div v-for="row in allChangedRows" :key="row.uid" style="margin-bottom: 16px;">
               <el-card shadow="never" size="small" style="border-left: 3px solid #e6a23c;">
                 <template #header>
                   <span style="font-weight: 600;">{{ row.wbs }} {{ row.rightTask?.name ?? row.leftTask?.name }} — {{ row.changes.length }}项变更</span>
                 </template>
                 <el-table :data="row.changes" size="small" stripe max-height="300">
                   <el-table-column prop="fieldLabel" label="字段" width="140" />
-                  <el-table-column label="旧值">
+                  <el-table-column label="旧值（基准A）">
                     <template #default="{ row: c }">
-                      <span style="color: #f56c6c;">{{ c.oldValue ?? '—' }}</span>
+                      <span class="change-old-value">{{ c.oldValue ?? '—' }}</span>
                     </template>
                   </el-table-column>
-                  <el-table-column label="新值">
+                  <el-table-column label="新值（对比B）">
                     <template #default="{ row: c }">
-                      <span style="color: #67c23a;">{{ c.newValue ?? '—' }}</span>
+                      <span class="change-new-value">{{ c.newValue ?? '—' }}</span>
                     </template>
                   </el-table-column>
                 </el-table>
               </el-card>
+            </div>
             </div>
           </div>
         </div>
@@ -310,4 +325,33 @@ const showAiAnalysis = ref(true)
 .ai-text ul { padding-left: 20px; margin: 8px 0; }
 .ai-text ul li { margin-bottom: 4px; }
 .ai-text strong { color: #409eff; }
+
+/* 变更详情滚动容器 — 限制高度防止过长影响后面AI分析加载 */
+.changes-scroll-container {
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 滚动条美化 */
+.changes-scroll-container::-webkit-scrollbar {
+  width: 6px;
+}
+.changes-scroll-container::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+.changes-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: #909399;
+}
+
+/* 变更详情旧值/新值颜色 */
+.change-old-value {
+  color: #f56c6c;
+  font-weight: 500;
+}
+.change-new-value {
+  color: #e6a23c;
+  font-weight: 500;
+}
 </style>

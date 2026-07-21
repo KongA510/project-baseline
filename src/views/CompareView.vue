@@ -86,28 +86,28 @@ const availableForRight = ref<Snapshot[]>([])
           >
             <el-option
               v-for="s in store.sortedSnapshots"
-              :key="s.meta.id"
-              :label="s.meta.name"
-              :value="s.meta.id"
-              :disabled="s.meta.id === snapshotId2"
+              :key="s.id"
+              :label="s.name"
+              :value="s.id"
+              :disabled="s.id === snapshotId2"
             >
               <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>{{ s.meta.name }}</span>
-                <span style="font-size: 11px; color: #909399;">{{ formatDate(s.meta.createdAt) }}</span>
+                <span>{{ s.name }}</span>
+                <span style="font-size: 11px; color: #909399;">{{ formatDate(s.createdAt) }}</span>
               </div>
             </el-option>
           </el-select>
 
           <!-- 选中快照信息 -->
           <div v-if="snapshotId1" style="margin-top: 16px;">
-            <template v-for="s in store.sortedSnapshots.filter(x => x.meta.id === snapshotId1)" :key="s.meta.id">
+            <template v-for="s in store.sortedSnapshots.filter(x => x.id === snapshotId1)" :key="s.id">
               <el-descriptions :column="1" size="small" border>
-                <el-descriptions-item label="描述">{{ s.meta.description }}</el-descriptions-item>
-                <el-descriptions-item label="总任务">{{ s.meta.totalTasks }}</el-descriptions-item>
+                <el-descriptions-item label="描述">{{ s.description }}</el-descriptions-item>
+                <el-descriptions-item label="总任务">{{ s.totalTasks }}</el-descriptions-item>
                 <el-descriptions-item label="完成度">
-                  <el-progress :percentage="s.meta.overallPercentComplete" :stroke-width="6" />
+                  <el-progress :percentage="s.overallPercentComplete" :stroke-width="6" />
                 </el-descriptions-item>
-                <el-descriptions-item label="关键路径任务">{{ s.meta.criticalPath.length }} 个</el-descriptions-item>
+                <el-descriptions-item label="关键路径任务">{{ s.criticalPath.length }} 个</el-descriptions-item>
               </el-descriptions>
             </template>
           </div>
@@ -147,27 +147,27 @@ const availableForRight = ref<Snapshot[]>([])
           >
             <el-option
               v-for="s in store.sortedSnapshots"
-              :key="s.meta.id"
-              :label="s.meta.name"
-              :value="s.meta.id"
-              :disabled="s.meta.id === snapshotId1"
+              :key="s.id"
+              :label="s.name"
+              :value="s.id"
+              :disabled="s.id === snapshotId1"
             >
               <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>{{ s.meta.name }}</span>
-                <span style="font-size: 11px; color: #909399;">{{ formatDate(s.meta.createdAt) }}</span>
+                <span>{{ s.name }}</span>
+                <span style="font-size: 11px; color: #909399;">{{ formatDate(s.createdAt) }}</span>
               </div>
             </el-option>
           </el-select>
 
           <div v-if="snapshotId2" style="margin-top: 16px;">
-            <template v-for="s in store.sortedSnapshots.filter(x => x.meta.id === snapshotId2)" :key="s.meta.id">
+            <template v-for="s in store.sortedSnapshots.filter(x => x.id === snapshotId2)" :key="s.id">
               <el-descriptions :column="1" size="small" border>
-                <el-descriptions-item label="描述">{{ s.meta.description }}</el-descriptions-item>
-                <el-descriptions-item label="总任务">{{ s.meta.totalTasks }}</el-descriptions-item>
+                <el-descriptions-item label="描述">{{ s.description }}</el-descriptions-item>
+                <el-descriptions-item label="总任务">{{ s.totalTasks }}</el-descriptions-item>
                 <el-descriptions-item label="完成度">
-                  <el-progress :percentage="s.meta.overallPercentComplete" :stroke-width="6" />
+                  <el-progress :percentage="s.overallPercentComplete" :stroke-width="6" />
                 </el-descriptions-item>
-                <el-descriptions-item label="关键路径任务">{{ s.meta.criticalPath.length }} 个</el-descriptions-item>
+                <el-descriptions-item label="关键路径任务">{{ s.criticalPath.length }} 个</el-descriptions-item>
               </el-descriptions>
             </template>
           </div>
@@ -203,27 +203,27 @@ const availableForRight = ref<Snapshot[]>([])
         :data="store.sortedSnapshots"
         stripe
         size="default"
-        @row-click="(row: Snapshot) => { if (!snapshotId1) { snapshotId1 = row.meta.id } else if (!snapshotId2) { snapshotId2 = row.meta.id } }"
+        @row-click="(row: Snapshot) => { if (!snapshotId1) { snapshotId1 = row.id } else if (!snapshotId2) { snapshotId2 = row.id } }"
         style="cursor: pointer;"
       >
-        <el-table-column prop="meta.name" label="名称" min-width="180">
+        <el-table-column prop="name" label="名称" min-width="180">
           <template #default="{ row }: { row: Snapshot }">
             <el-icon color="#409eff"><CameraFilled /></el-icon>
-            <span style="margin-left: 8px; font-weight: 500;">{{ row.meta.name }}</span>
+            <span style="margin-left: 8px; font-weight: 500;">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="meta.description" label="描述" min-width="220" />
+        <el-table-column prop="description" label="描述" min-width="220" />
         <el-table-column label="创建时间" width="180">
           <template #default="{ row }: { row: Snapshot }">
-            {{ formatDate(row.meta.createdAt) }}
+            {{ formatDate(row.createdAt) }}
           </template>
         </el-table-column>
         <el-table-column label="A" width="60" align="center">
           <template #default="{ row }: { row: Snapshot }">
             <el-radio
               :model-value="snapshotId1"
-              :value="row.meta.id"
-              @change="snapshotId1 = row.meta.id"
+              :value="row.id"
+              @change="snapshotId1 = row.id"
             />
           </template>
         </el-table-column>
@@ -231,8 +231,8 @@ const availableForRight = ref<Snapshot[]>([])
           <template #default="{ row }: { row: Snapshot }">
             <el-radio
               :model-value="snapshotId2"
-              :value="row.meta.id"
-              @change="snapshotId2 = row.meta.id"
+              :value="row.id"
+              @change="snapshotId2 = row.id"
             />
           </template>
         </el-table-column>

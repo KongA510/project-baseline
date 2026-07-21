@@ -1,20 +1,77 @@
 // ============================================================
-// 模拟数据 - Aras 项目计划结构
-// 所有 id 使用 Aras Item 风格的 GUID 格式
-// 前置依赖使用图中的 "N:X" 格式
+// 模拟数据 — 正确的 WBS 结构
+//
+// 核心约束：
+//   SUMMARY = 纯容器节点，只包含子 WBS 元素，不参与 CPM 计算
+//   TASK / MILESTONE = 叶子节点，children 永远为空
+//   层级深度 = SUMMARY 的嵌套层级
+//
+// WBS 结构（V1 基线）：
+//
+//   [6层深度]
+//   0  1.项目启动 (SUMMARY)
+//   0  ├─ 1.1 项目策划 (SUMMARY)
+//   0  │  ├─ 1.1.1 章程制定 (TASK)
+//   0  │  ├─ 1.1.2 团队组建 (TASK)
+//   0  │  └─ 1.1.3 启动会议 (MILESTONE)
+//   0  │
+//   0  2.产品设计 (SUMMARY)
+//   0  ├─ 2.1 需求分析 (SUMMARY)
+//   0  │  ├─ 2.1.1 客户调研 (SUMMARY)
+//   0  │  │  ├─ 2.1.1.1 访谈计划 (TASK)
+//   0  │  │  ├─ 2.1.1.2 客户访谈 (TASK)
+//   0  │  │  └─ 2.1.1.3 需求整理 (TASK)
+//   0  │  ├─ 2.1.2 竞品分析 (TASK)            ← V2 删除
+//   0  │  └─ 2.1.3 需求评审 (MILESTONE)
+//   0  ├─ 2.2 结构设计 (SUMMARY)
+//   0  │  ├─ 2.2.1 概念设计 (TASK)
+//   0  │  ├─ 2.2.2 详细设计 (TASK)
+//   0  │  └─ 2.2.3 DFMEA分析 (TASK)
+//   0  ├─ 2.3 电气设计 (SUMMARY)
+//   0  │  ├─ 2.3.1 原理图设计 (TASK)
+//   0  │  ├─ 2.3.2 PCB布局 (TASK)
+//   0  │  └─ 2.3.3 BOM编制 (TASK)
+//   0  ├─ 2.4 安全审查 (TASK)                  ← V2 新增
+//   0  └─ 2.5 设计评审 (MILESTONE)
+//   0
+//   0  3.采购与制造 (SUMMARY)
+//   0  ├─ 3.1 零部件采购 (SUMMARY)
+//   0  │  ├─ 3.1.1 核心部件采购 (TASK)
+//   0  │  ├─ 3.1.2 电气元件采购 (TASK)         ← V2 名称变更为"一体化模组采购"
+//   0  │  └─ 3.1.3 标准件采购 (TASK)
+//   0  ├─ 3.2 外协加工 (SUMMARY)
+//   0  │  ├─ 3.2.1 机加工外协 (TASK)
+//   0  │  └─ 3.2.2 表面处理 (TASK)
+//   0  └─ 3.3 来料检验 (TASK)
+//   0
+//   0  4.系统装配 (SUMMARY)
+//   0  ├─ 4.1 机械装配 (TASK)
+//   0  ├─ 4.2 电气装配 (TASK)
+//   0  └─ 4.3 装配检验 (MILESTONE)
+//   0
+//   0  5.测试与验收 (SUMMARY)
+//   0  ├─ 5.1 功能调试 (TASK)
+//   0  ├─ 5.2 性能测试 (TASK)
+//   0  ├─ 5.3 环境试验 (TASK)
+//   0  └─ 5.4 验收测试 (MILESTONE)             ← V1/V2 完全不变
+//
+// V2 差异覆盖：
+//   ADDED    → 2.4 安全审查（新增叶子 TASK）
+//   REMOVED  → 2.1.2 竞品分析（删除叶子 TASK）
+//   MODIFIED → 人员、工期、状态、日期、前继依赖、名称
+//   UNCHANGED → 5.4 验收测试（完全不变）
 // ============================================================
 
 import {
-  type ProjectPlan,
-  type ProjectTask,
   type Snapshot,
+  type TaskNode,
   type TeamMember,
   TaskStatus,
   TaskType,
   DependencyType,
   ConstraintType,
 } from '@/types'
-import { calculateCriticalPath, getCriticalPathTaskIds } from '@/utils/criticalPath'
+import { calculateCriticalPath } from '@/utils/criticalPath'
 
 // ============================================================
 // 团队成员
@@ -22,663 +79,810 @@ import { calculateCriticalPath, getCriticalPathTaskIds } from '@/utils/criticalP
 
 const teamMembers: Record<string, TeamMember> = {
   zhangSan: { id: 'IDENTITY_001', name: '张三', role: '项目经理' },
-  liSi: { id: 'IDENTITY_002', name: '李四', role: '结构工程师' },
-  wangWu: { id: 'IDENTITY_003', name: '王五', role: '电气工程师' },
-  zhaoLiu: { id: 'IDENTITY_004', name: '赵六', role: '软件工程师' },
-  sunQi: { id: 'IDENTITY_005', name: '孙七', role: '测试工程师' },
-  zhouBa: { id: 'IDENTITY_006', name: '周八', role: '工艺工程师' },
+  liSi:     { id: 'IDENTITY_002', name: '李四', role: '结构工程师' },
+  wangWu:   { id: 'IDENTITY_003', name: '王五', role: '电气工程师' },
+  zhaoLiu:  { id: 'IDENTITY_004', name: '赵六', role: '软件工程师' },
+  sunQi:    { id: 'IDENTITY_005', name: '孙七', role: '测试工程师' },
+  zhouBa:   { id: 'IDENTITY_006', name: '周八', role: '工艺工程师' },
+  wuJiu:    { id: 'IDENTITY_007', name: '吴九', role: '质量工程师' },
+  qianShi:  { id: 'IDENTITY_008', name: '钱十', role: '采购专员' },
 }
 
 // ============================================================
-// 构造任务
+// 工具函数
 // ============================================================
 
 let taskCounter = 0
-function nextId(): string {
-  taskCounter++
-  return `TASK_${String(taskCounter).padStart(3, '0')}`
+function nextId(): string { taskCounter++; return `TASK_${String(taskCounter).padStart(3, '0')}` }
+function resetCounter() { taskCounter = 0 }
+
+const blankCpm = {
+  earliestStart: null, earliestFinish: null,
+  latestStart: null, latestFinish: null,
+  totalFloat: 0, freeFloat: 0, isCritical: false,
 }
 
-/** 任务计数器重置（仅用于 V2，不用于 V1） */
-function resetCounter() {
-  taskCounter = 0
+function pred(id: string, dep = DependencyType.FS, lag = 0) {
+  return { id: `PRED_${id}`, predecessorId: id, dependencyType: dep, lagDays: lag }
+}
+
+function preds(...ps: Array<{ id: string; predecessorId: string; dependencyType: DependencyType; lagDays: number }>) {
+  return ps
+}
+
+/** 创建一个叶子 TASK */
+function leafTask(overrides: Partial<TaskNode> & { id: string; wbs: string; name: string }): TaskNode {
+  return {
+    description: '', type: TaskType.TASK, status: TaskStatus.PENDING,
+    duration: 5, percentComplete: 0,
+    plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-07',
+    actualStartDate: null, actualEndDate: null,
+    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
+    constraintType: ConstraintType.ASAP, constraintDate: null,
+    predecessors: [], cpmDates: { ...blankCpm },
+    assignedTo: null, children: [], parentId: null, sortOrder: 1,
+    notes: '', isMilestone: false,
+    ...overrides,
+  }
+}
+
+/** 创建一个叶子 MILESTONE */
+function leafMilestone(overrides: Partial<TaskNode> & { id: string; wbs: string; name: string }): TaskNode {
+  return {
+    description: '', type: TaskType.MILESTONE, status: TaskStatus.PENDING,
+    duration: 0, percentComplete: 0,
+    plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-01',
+    actualStartDate: null, actualEndDate: null,
+    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
+    constraintType: ConstraintType.ASAP, constraintDate: null,
+    predecessors: [], cpmDates: { ...blankCpm },
+    assignedTo: null, children: [], parentId: null, sortOrder: 1,
+    notes: '', isMilestone: true,
+    ...overrides,
+  }
+}
+
+/** 创建一个 SUMMARY（容器节点） */
+function summaryNode(overrides: Partial<TaskNode> & { id: string; wbs: string; name: string; children: TaskNode[] }): TaskNode {
+  return {
+    description: '', type: TaskType.SUMMARY, status: TaskStatus.PENDING,
+    duration: 0, percentComplete: 0,
+    plannedStartDate: '', plannedEndDate: '',
+    actualStartDate: null, actualEndDate: null,
+    targetStartDate: '', targetEndDate: '',
+    constraintType: ConstraintType.ASAP, constraintDate: null,
+    predecessors: [], cpmDates: { ...blankCpm },
+    assignedTo: null, parentId: null, sortOrder: 1,
+    notes: '', isMilestone: false,
+    ...overrides,
+  }
 }
 
 // ============================================================
-// 项目计划 V1（初始版本——作为快照1的基础）
+// V1 基线
 // ============================================================
 
-function createPlanV1(): ProjectPlan {
-  taskCounter = 0
-  // --- 顶层任务 ---
-  const t1: ProjectTask = {
-    id: nextId(), wbs: '1', name: '产品设计阶段', description: '完成产品整体设计',
-    type: TaskType.SUMMARY, status: TaskStatus.COMPLETED, duration: 20,
-    percentComplete: 100, plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-28',
-    actualStartDate: '2026-06-01', actualEndDate: '2026-06-26',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhangSan, children: [], parentId: null, sortOrder: 1, notes: '', isMilestone: false,
-  }
+function createPlanV1(): TaskNode[] {
+  resetCounter()
 
-  const t11: ProjectTask = {
-    id: nextId(), wbs: '1.1', name: '需求分析', description: '收集和分析客户需求',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 5,
-    percentComplete: 100, plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-07',
-    actualStartDate: '2026-06-01', actualEndDate: '2026-06-06',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t1.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
+  // ─── 1.项目启动 ───
+  const t111 = leafTask({ id: nextId(), wbs: '1.1.1', name: '章程制定', duration: 3,
+    plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-03',
+    actualStartDate: '2026-06-01', actualEndDate: '2026-06-03',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    assignedTo: teamMembers.zhangSan, sortOrder: 1,
+  })
+  const t112 = leafTask({ id: nextId(), wbs: '1.1.2', name: '团队组建', duration: 5,
+    plannedStartDate: '2026-06-04', plannedEndDate: '2026-06-10',
+    actualStartDate: '2026-06-04', actualEndDate: '2026-06-09',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t111.id)),
+    assignedTo: teamMembers.zhangSan, sortOrder: 2,
+  })
+  const t113 = leafMilestone({ id: nextId(), wbs: '1.1.3', name: '启动会议',
+    plannedStartDate: '2026-06-11', plannedEndDate: '2026-06-11',
+    actualStartDate: '2026-06-11', actualEndDate: '2026-06-11',
+    status: TaskStatus.COMPLETED,
+    predecessors: preds(pred(t112.id)),
+    assignedTo: teamMembers.zhangSan, sortOrder: 3,
+  })
+  const n11 = summaryNode({ id: nextId(), wbs: '1.1', name: '项目策划',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.zhangSan,
+    children: [t111, t112, t113], sortOrder: 1,
+  })
+  t111.parentId = n11.id; t112.parentId = n11.id; t113.parentId = n11.id
 
-  const t12: ProjectTask = {
-    id: nextId(), wbs: '1.2', name: '概念设计', description: '产品概念方案设计',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 8,
-    percentComplete: 100, plannedStartDate: '2026-06-08', plannedEndDate: '2026-06-17',
-    actualStartDate: '2026-06-07', actualEndDate: '2026-06-16',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_001', predecessorId: t11.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t1.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
+  const n1 = summaryNode({ id: nextId(), wbs: '1', name: '项目启动',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.zhangSan,
+    children: [n11], sortOrder: 1,
+  })
+  n11.parentId = n1.id
 
-  const t13: ProjectTask = {
-    id: nextId(), wbs: '1.3', name: '详细设计', description: '产品详细工程设计',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 7,
-    percentComplete: 100, plannedStartDate: '2026-06-18', plannedEndDate: '2026-06-26',
-    actualStartDate: '2026-06-17', actualEndDate: '2026-06-25',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_002', predecessorId: t12.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.wangWu, children: [], parentId: t1.id, sortOrder: 3, notes: '', isMilestone: false,
-  }
+  // ─── 2.产品设计 ───
+  // 2.1 需求分析 (SUMMARY)
+  const t2111 = leafTask({ id: nextId(), wbs: '2.1.1.1', name: '访谈计划', duration: 2,
+    plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-02',
+    actualStartDate: '2026-06-01', actualEndDate: '2026-06-02',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    assignedTo: teamMembers.liSi, sortOrder: 1,
+  })
+  const t2112 = leafTask({ id: nextId(), wbs: '2.1.1.2', name: '客户访谈', duration: 3,
+    plannedStartDate: '2026-06-03', plannedEndDate: '2026-06-05',
+    actualStartDate: '2026-06-03', actualEndDate: '2026-06-05',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t2111.id)),
+    assignedTo: teamMembers.liSi, sortOrder: 2,
+  })
+  const t2113 = leafTask({ id: nextId(), wbs: '2.1.1.3', name: '需求整理', duration: 2,
+    plannedStartDate: '2026-06-06', plannedEndDate: '2026-06-07',
+    actualStartDate: '2026-06-06', actualEndDate: '2026-06-07',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t2112.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 3,
+  })
+  const n211 = summaryNode({ id: nextId(), wbs: '2.1.1', name: '客户调研',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [t2111, t2112, t2113], sortOrder: 1,
+  })
+  t2111.parentId = n211.id; t2112.parentId = n211.id; t2113.parentId = n211.id
 
-  const t14: ProjectTask = {
-    id: nextId(), wbs: '1.4', name: '设计评审（里程碑）', description: '设计阶段评审里程碑',
-    type: TaskType.MILESTONE, status: TaskStatus.COMPLETED, duration: 0,
-    percentComplete: 100, plannedStartDate: '2026-06-28', plannedEndDate: '2026-06-28',
-    actualStartDate: '2026-06-26', actualEndDate: '2026-06-26',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_003', predecessorId: t13.id, dependencyType: DependencyType.FS, lagDays: 2 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhangSan, children: [], parentId: t1.id, sortOrder: 4, notes: '关键里程碑', isMilestone: true,
-  }
+  const t212 = leafTask({ id: nextId(), wbs: '2.1.2', name: '竞品分析', duration: 3,  // ← V2 删除
+    plannedStartDate: '2026-06-08', plannedEndDate: '2026-06-10',
+    actualStartDate: '2026-06-08', actualEndDate: '2026-06-10',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t2113.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 2,
+  })
+  const t213 = leafMilestone({ id: nextId(), wbs: '2.1.3', name: '需求评审',
+    plannedStartDate: '2026-06-12', plannedEndDate: '2026-06-12',
+    actualStartDate: '2026-06-12', actualEndDate: '2026-06-12',
+    status: TaskStatus.COMPLETED,
+    predecessors: preds(pred(t212.id, DependencyType.FS, 2)),
+    assignedTo: teamMembers.zhangSan, sortOrder: 3,
+  })
+  const n21 = summaryNode({ id: nextId(), wbs: '2.1', name: '需求分析',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [n211, t212, t213], sortOrder: 1,
+  })
+  n211.parentId = n21.id; t212.parentId = n21.id; t213.parentId = n21.id
 
-  t1.children = [t11, t12, t13, t14]
+  // 2.2 结构设计 (SUMMARY)
+  const t221 = leafTask({ id: nextId(), wbs: '2.2.1', name: '概念设计', duration: 8,
+    plannedStartDate: '2026-06-13', plannedEndDate: '2026-06-22',
+    actualStartDate: '2026-06-13', actualEndDate: '2026-06-21',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t213.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.liSi, sortOrder: 1,
+  })
+  const t222 = leafTask({ id: nextId(), wbs: '2.2.2', name: '详细设计', duration: 7,
+    plannedStartDate: '2026-06-23', plannedEndDate: '2026-07-01',
+    actualStartDate: '2026-06-22', actualEndDate: '2026-06-30',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t221.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 2,
+  })
+  const t223 = leafTask({ id: nextId(), wbs: '2.2.3', name: 'DFMEA分析', duration: 5,
+    plannedStartDate: '2026-07-02', plannedEndDate: '2026-07-08',
+    actualStartDate: '2026-07-01', actualEndDate: '2026-07-07',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t222.id)),
+    assignedTo: teamMembers.wuJiu, sortOrder: 3,
+  })
+  const n22 = summaryNode({ id: nextId(), wbs: '2.2', name: '结构设计',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [t221, t222, t223], sortOrder: 2,
+  })
+  t221.parentId = n22.id; t222.parentId = n22.id; t223.parentId = n22.id
 
-  // --- 顶层任务 2 ---
-  const t2: ProjectTask = {
-    id: nextId(), wbs: '2', name: '零部件采购与制造', description: '核心零部件采购和外协制造',
-    type: TaskType.SUMMARY, status: TaskStatus.IN_PROGRESS, duration: 40,
-    percentComplete: 60, plannedStartDate: '2026-07-01', plannedEndDate: '2026-08-25',
-    actualStartDate: '2026-07-01', actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_004', predecessorId: t14.id, dependencyType: DependencyType.FS, lagDays: 3 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhouBa, children: [], parentId: null, sortOrder: 2, notes: '', isMilestone: false,
-  }
+  // 2.3 电气设计 (SUMMARY)
+  const t231 = leafTask({ id: nextId(), wbs: '2.3.1', name: '原理图设计', duration: 6,
+    plannedStartDate: '2026-07-09', plannedEndDate: '2026-07-16',
+    actualStartDate: '2026-07-08', actualEndDate: '2026-07-15',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t223.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 1,
+  })
+  const t232 = leafTask({ id: nextId(), wbs: '2.3.2', name: 'PCB布局', duration: 4,
+    plannedStartDate: '2026-07-17', plannedEndDate: '2026-07-22',
+    actualStartDate: '2026-07-16', actualEndDate: '2026-07-21',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t231.id)),
+    assignedTo: teamMembers.zhaoLiu, sortOrder: 2,
+  })
+  const t233 = leafTask({ id: nextId(), wbs: '2.3.3', name: 'BOM编制', duration: 3,
+    plannedStartDate: '2026-07-23', plannedEndDate: '2026-07-25',
+    actualStartDate: '2026-07-22', actualEndDate: '2026-07-24',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t232.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 3,
+  })
+  const n23 = summaryNode({ id: nextId(), wbs: '2.3', name: '电气设计',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.wangWu,
+    children: [t231, t232, t233], sortOrder: 3,
+  })
+  t231.parentId = n23.id; t232.parentId = n23.id; t233.parentId = n23.id
 
-  const t21: ProjectTask = {
-    id: nextId(), wbs: '2.1', name: '核心部件采购', description: '关键机械部件采购',
-    type: TaskType.TASK, status: TaskStatus.IN_PROGRESS, duration: 15,
-    percentComplete: 80, plannedStartDate: '2026-07-01', plannedEndDate: '2026-07-21',
-    actualStartDate: '2026-07-01', actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t2.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
+  // 2.5 设计评审 (MILESTONE)
+  const t25 = leafMilestone({ id: nextId(), wbs: '2.5', name: '设计评审',
+    plannedStartDate: '2026-07-26', plannedEndDate: '2026-07-26',
+    actualStartDate: '2026-07-25', actualEndDate: '2026-07-25',
+    status: TaskStatus.COMPLETED,
+    predecessors: preds(
+      pred(t223.id, DependencyType.FS, 1),
+      pred(t233.id, DependencyType.FS, 1),
+    ),
+    assignedTo: teamMembers.zhangSan, sortOrder: 5,
+  })
 
-  const t22: ProjectTask = {
-    id: nextId(), wbs: '2.2', name: '电气元件采购', description: 'PLC和传感器采购',
-    type: TaskType.TASK, status: TaskStatus.IN_PROGRESS, duration: 12,
-    percentComplete: 50, plannedStartDate: '2026-07-01', plannedEndDate: '2026-07-16',
-    actualStartDate: '2026-07-01', actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.wangWu, children: [], parentId: t2.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
+  const n2 = summaryNode({ id: nextId(), wbs: '2', name: '产品设计',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [n21, n22, n23, t25], sortOrder: 2,
+  })
+  n21.parentId = n2.id; n22.parentId = n2.id; n23.parentId = n2.id; t25.parentId = n2.id
 
-  const t23: ProjectTask = {
-    id: nextId(), wbs: '2.3', name: '外协加工', description: '机加工外协',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 20,
-    percentComplete: 0, plannedStartDate: '2026-07-22', plannedEndDate: '2026-08-18',
+  // ─── 3.采购与制造 ───
+  const t311 = leafTask({ id: nextId(), wbs: '3.1.1', name: '核心部件采购', duration: 15,
+    plannedStartDate: '2026-07-27', plannedEndDate: '2026-08-14',
+    actualStartDate: '2026-07-27', actualEndDate: null,
+    status: TaskStatus.IN_PROGRESS, percentComplete: 80,
+    predecessors: preds(pred(t25.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.liSi, sortOrder: 1,
+  })
+  const t312 = leafTask({ id: nextId(), wbs: '3.1.2', name: '电气元件采购', duration: 12,  // ← V2 变名
+    plannedStartDate: '2026-07-27', plannedEndDate: '2026-08-11',
+    actualStartDate: '2026-07-27', actualEndDate: null,
+    status: TaskStatus.IN_PROGRESS, percentComplete: 50,
+    predecessors: preds(pred(t25.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.wangWu, sortOrder: 2,
+  })
+  const t313 = leafTask({ id: nextId(), wbs: '3.1.3', name: '标准件采购', duration: 8,
+    plannedStartDate: '2026-07-27', plannedEndDate: '2026-08-05',
+    actualStartDate: '2026-07-27', actualEndDate: '2026-08-04',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t25.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.qianShi, sortOrder: 3,
+  })
+  const n31 = summaryNode({ id: nextId(), wbs: '3.1', name: '零部件采购',
+    status: TaskStatus.IN_PROGRESS, assignedTo: teamMembers.zhouBa,
+    children: [t311, t312, t313], sortOrder: 1,
+  })
+  t311.parentId = n31.id; t312.parentId = n31.id; t313.parentId = n31.id
+
+  const t321 = leafTask({ id: nextId(), wbs: '3.2.1', name: '机加工外协', duration: 20,
+    plannedStartDate: '2026-08-15', plannedEndDate: '2026-09-11',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [
-      { id: 'PRED_005', predecessorId: t21.id, dependencyType: DependencyType.FS, lagDays: 1 },
-      { id: 'PRED_006', predecessorId: t22.id, dependencyType: DependencyType.FS, lagDays: 6 },
-    ],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhouBa, children: [], parentId: t2.id, sortOrder: 3, notes: '', isMilestone: false,
-  }
-
-  const t24: ProjectTask = {
-    id: nextId(), wbs: '2.4', name: '来料检验', description: '所有外购和加工件检验',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 5,
-    percentComplete: 0, plannedStartDate: '2026-08-19', plannedEndDate: '2026-08-25',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t311.id), pred(t312.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.zhouBa, sortOrder: 1,
+  })
+  const t322 = leafTask({ id: nextId(), wbs: '3.2.2', name: '表面处理', duration: 7,
+    plannedStartDate: '2026-09-12', plannedEndDate: '2026-09-20',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_007', predecessorId: t23.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t2.id, sortOrder: 4, notes: '', isMilestone: false,
-  }
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t321.id)),
+    assignedTo: teamMembers.zhouBa, sortOrder: 2,
+  })
+  const n32 = summaryNode({ id: nextId(), wbs: '3.2', name: '外协加工',
+    status: TaskStatus.PENDING, assignedTo: teamMembers.zhouBa,
+    children: [t321, t322], sortOrder: 2,
+  })
+  t321.parentId = n32.id; t322.parentId = n32.id
 
-  t2.children = [t21, t22, t23, t24]
-
-  // --- 顶层任务 3 ---
-  const t3: ProjectTask = {
-    id: nextId(), wbs: '3', name: '系统装配', description: '产品整机装配',
-    type: TaskType.SUMMARY, status: TaskStatus.PENDING, duration: 25,
-    percentComplete: 0, plannedStartDate: '2026-08-26', plannedEndDate: '2026-09-29',
+  const t33 = leafTask({ id: nextId(), wbs: '3.3', name: '来料检验', duration: 5,
+    plannedStartDate: '2026-09-21', plannedEndDate: '2026-09-27',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_008', predecessorId: t24.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhouBa, children: [], parentId: null, sortOrder: 3, notes: '', isMilestone: false,
-  }
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t322.id), pred(t313.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.wuJiu, sortOrder: 3,
+  })
 
-  const t31: ProjectTask = {
-    id: nextId(), wbs: '3.1', name: '机械装配', description: '机械结构件装配',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 15,
-    percentComplete: 0, plannedStartDate: '2026-08-26', plannedEndDate: '2026-09-15',
+  const n3 = summaryNode({ id: nextId(), wbs: '3', name: '采购与制造',
+    status: TaskStatus.IN_PROGRESS, assignedTo: teamMembers.zhouBa,
+    children: [n31, n32, t33], sortOrder: 3,
+  })
+  n31.parentId = n3.id; n32.parentId = n3.id; t33.parentId = n3.id
+
+  // ─── 4.系统装配 ───
+  const t41 = leafTask({ id: nextId(), wbs: '4.1', name: '机械装配', duration: 15,
+    plannedStartDate: '2026-09-28', plannedEndDate: '2026-10-18',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t3.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
-
-  const t32: ProjectTask = {
-    id: nextId(), wbs: '3.2', name: '电气装配', description: '电气柜和线缆装配',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 10,
-    percentComplete: 0, plannedStartDate: '2026-09-01', plannedEndDate: '2026-09-14',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t33.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.liSi, sortOrder: 1,
+  })
+  const t42 = leafTask({ id: nextId(), wbs: '4.2', name: '电气装配', duration: 10,
+    plannedStartDate: '2026-10-05', plannedEndDate: '2026-10-18',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_009', predecessorId: t31.id, dependencyType: DependencyType.SS, lagDays: 5 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.wangWu, children: [], parentId: t3.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
-
-  const t33: ProjectTask = {
-    id: nextId(), wbs: '3.3', name: '装配检验', description: '装配完成后检验',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 3,
-    percentComplete: 0, plannedStartDate: '2026-09-25', plannedEndDate: '2026-09-29',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t41.id, DependencyType.SS, 5)),
+    assignedTo: teamMembers.wangWu, sortOrder: 2,
+  })
+  const t43 = leafMilestone({ id: nextId(), wbs: '4.3', name: '装配检验',
+    plannedStartDate: '2026-10-20', plannedEndDate: '2026-10-20',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [
-      { id: 'PRED_010', predecessorId: t31.id, dependencyType: DependencyType.FS, lagDays: 1 },
-      { id: 'PRED_011', predecessorId: t32.id, dependencyType: DependencyType.FS, lagDays: 1 },
-    ],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.sunQi, children: [], parentId: t3.id, sortOrder: 3, notes: '', isMilestone: false,
-  }
+    status: TaskStatus.PENDING,
+    predecessors: preds(pred(t41.id), pred(t42.id)),
+    assignedTo: teamMembers.sunQi, sortOrder: 3,
+  })
 
-  t3.children = [t31, t32, t33]
+  const n4 = summaryNode({ id: nextId(), wbs: '4', name: '系统装配',
+    status: TaskStatus.PENDING, assignedTo: teamMembers.zhouBa,
+    children: [t41, t42, t43], sortOrder: 4,
+  })
+  t41.parentId = n4.id; t42.parentId = n4.id; t43.parentId = n4.id
 
-  // --- 顶层任务 4 ---
-  const t4: ProjectTask = {
-    id: nextId(), wbs: '4', name: '系统调试与测试', description: '整机调试和性能测试',
-    type: TaskType.SUMMARY, status: TaskStatus.PENDING, duration: 30,
-    percentComplete: 0, plannedStartDate: '2026-10-01', plannedEndDate: '2026-11-11',
+  // ─── 5.测试与验收 ───
+  const t51 = leafTask({ id: nextId(), wbs: '5.1', name: '功能调试', duration: 12,
+    plannedStartDate: '2026-10-21', plannedEndDate: '2026-11-05',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_012', predecessorId: t33.id, dependencyType: DependencyType.FS, lagDays: 2 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhaoLiu, children: [], parentId: null, sortOrder: 4, notes: '', isMilestone: false,
-  }
-
-  const t41: ProjectTask = {
-    id: nextId(), wbs: '4.1', name: '功能调试', description: '基本功能调试',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 12,
-    percentComplete: 0, plannedStartDate: '2026-10-01', plannedEndDate: '2026-10-16',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t43.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.zhaoLiu, sortOrder: 1,
+  })
+  const t52 = leafTask({ id: nextId(), wbs: '5.2', name: '性能测试', duration: 10,
+    plannedStartDate: '2026-11-06', plannedEndDate: '2026-11-19',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhaoLiu, children: [], parentId: t4.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
-
-  const t42: ProjectTask = {
-    id: nextId(), wbs: '4.2', name: '性能测试', description: '各种工况性能测试',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 10,
-    percentComplete: 0, plannedStartDate: '2026-10-17', plannedEndDate: '2026-10-30',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t51.id)),
+    assignedTo: teamMembers.sunQi, sortOrder: 2,
+  })
+  const t53 = leafTask({ id: nextId(), wbs: '5.3', name: '环境试验', duration: 8,
+    plannedStartDate: '2026-11-20', plannedEndDate: '2026-11-29',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_013', predecessorId: t41.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.sunQi, children: [], parentId: t4.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
-
-  const t43: ProjectTask = {
-    id: nextId(), wbs: '4.3', name: '验收测试（里程碑）', description: '客户验收测试',
-    type: TaskType.MILESTONE, status: TaskStatus.PENDING, duration: 0,
-    percentComplete: 0, plannedStartDate: '2026-11-11', plannedEndDate: '2026-11-11',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t52.id)),
+    assignedTo: teamMembers.sunQi, sortOrder: 3,
+  })
+  const t54 = leafMilestone({ id: nextId(), wbs: '5.4', name: '验收测试',
+    plannedStartDate: '2026-12-01', plannedEndDate: '2026-12-01',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.MFO, constraintDate: '2026-11-11',
-    predecessors: [{ id: 'PRED_014', predecessorId: t42.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhangSan, children: [], parentId: t4.id, sortOrder: 3, notes: '最终验收里程碑', isMilestone: true,
-  }
+    status: TaskStatus.PENDING,
+    predecessors: preds(pred(t53.id, DependencyType.FS, 2)),
+    assignedTo: teamMembers.zhangSan, sortOrder: 4,
+  })
 
-  t4.children = [t41, t42, t43]
+  const n5 = summaryNode({ id: nextId(), wbs: '5', name: '测试与验收',
+    status: TaskStatus.PENDING, assignedTo: teamMembers.zhaoLiu,
+    children: [t51, t52, t53, t54], sortOrder: 5,
+  })
+  t51.parentId = n5.id; t52.parentId = n5.id; t53.parentId = n5.id; t54.parentId = n5.id
 
-  const allTasks = [
-    t1, t11, t12, t13, t14,
-    t2, t21, t22, t23, t24,
-    t3, t31, t32, t33,
-    t4, t41, t42, t43,
+  // ─── 全部扁平任务（仅叶子）───
+  const allLeafs = [
+    t111, t112, t113,
+    t2111, t2112, t2113, t212, t213,
+    t221, t222, t223,
+    t231, t232, t233,
+    t25,
+    t311, t312, t313,
+    t321, t322, t33,
+    t41, t42, t43,
+    t51, t52, t53, t54,
   ]
 
-  // 运行关键路径计算
-  const calculatedTasks = calculateCriticalPath(allTasks, '2026-06-01', '2026-12-31')
+  const calculated = calculateCriticalPath(allLeafs, '2026-06-01', '2026-12-31')
 
-  // 重建树结构
-  function rebuildTree(flat: ProjectTask[]): ProjectTask[] {
-    const map = new Map<string, ProjectTask>(flat.map(t => [t.id, { ...t, children: [] as ProjectTask[] }]))
-    const roots: ProjectTask[] = []
-    for (const t of map.values()) {
-      if (t.parentId && map.has(t.parentId)) {
-        map.get(t.parentId)!.children.push(t)
-      } else if (!t.parentId) {
-        roots.push(t)
-      }
-    }
-    // 递归排序
-    function sortChildren(task: ProjectTask) {
-      task.children.sort((a: ProjectTask, b: ProjectTask) => a.sortOrder - b.sortOrder)
-      task.children.forEach(sortChildren)
-    }
-    roots.sort((a: ProjectTask, b: ProjectTask) => a.sortOrder - b.sortOrder)
-    roots.forEach(sortChildren)
-    return roots
-  }
-
-  const rootedTasks = rebuildTree(calculatedTasks)
-
-  return {
-    id: 'PROJECT_PLAN_001',
-    name: '智能装配线开发项目',
-    projectNumber: 'PRJ-2026-0001',
-    targetStartDate: '2026-06-01',
-    targetEndDate: '2026-12-31',
-    tasks: rootedTasks,
-    status: 'Active',
-    projectManager: teamMembers.zhangSan,
-  }
+  // rebuildTree 会通过 parentId 把 SUMMARY 也构建回去
+  const allNodes = [n1, n11, n2, n21, n211, n22, n23, n3, n31, n32, n4, n5, ...calculated]
+  return rebuildTree(allNodes)
 }
 
 // ============================================================
-// 项目计划 V2（变更后版本——作为快照2的基础）
-// 模拟变化：
-//   - 新增任务 "1.5 安全审查"
-//   - 删除任务 "2.2 电气元件采购" → 替换为 "2.2 一体化电气模组采购"
-//   - 任务 "3.1 机械装配" 工期从 15→18 天
-//   - 任务 "4.1 功能调试" 状态变为进行中
-//   - 任务 "3.2 电气装配" 工期从 10→8 天
-//   - 关键路径可能变化
+// V2 基线 — 覆盖全差异状态
+//
+// 差异清单：
+//   ADDED     → 2.4 安全审查（新增叶子 TASK）
+//   REMOVED   → 2.1.2 竞品分析（WBS 2.1.2 不再存在）
+//   MODIFIED  → 人员: 2.1.1.1 李四→赵六            (姓名+ID+角色)
+//   MODIFIED  → 人员: 3.1.1 李四→钱十               (姓名+ID+角色)
+//   MODIFIED  → 人员: 3.1.2 王五→钱十               (姓名+ID+角色)
+//   MODIFIED  → 名称: 3.1.2 电气元件采购→一体化电气模组采购
+//   MODIFIED  → 工期: 3.1.2 12→18天
+//   MODIFIED  → 工期: 3.2.1 20→18天
+//   MODIFIED  → 工期: 4.1 15→18天
+//   MODIFIED  → 工期: 4.2 10→8天
+//   MODIFIED  → 状态: 5.1 PENDING→IN_PROGRESS
+//   MODIFIED  → %:   5.1 0→30%
+//   MODIFIED  → 日期: 大量任务因前置链路变化而日期漂移
+//   MODIFIED  → 前继: 2.5 设计评审增加依赖 t24 (安全审查)
+//   MODIFIED  → 约束: 5.4 MFO 约束日期 2026-12-01→2026-12-15
+//   UNCHANGED → 1.1.1 章程制定（所有字段完全一致）
+//   UNCHANGED → 1.1.2 团队组建
+//   UNCHANGED → 1.1.3 启动会议
 // ============================================================
 
-function createPlanV2(): ProjectPlan {
-  resetCounter() // 重置计数器确保与 V1 完全一致
+function createPlanV2(): TaskNode[] {
+  resetCounter()
 
-  const t1: ProjectTask = {
-    id: nextId(), wbs: '1', name: '产品设计阶段', description: '完成产品整体设计',
-    type: TaskType.SUMMARY, status: TaskStatus.COMPLETED, duration: 25,
-    percentComplete: 100, plannedStartDate: '2026-06-01', plannedEndDate: '2026-07-05',
-    actualStartDate: '2026-06-01', actualEndDate: '2026-07-03',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhangSan, children: [], parentId: null, sortOrder: 1, notes: '', isMilestone: false,
-  }
+  // ─── 1.项目启动（完全不变）───
+  const t111 = leafTask({ id: nextId(), wbs: '1.1.1', name: '章程制定', duration: 3,
+    plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-03',
+    actualStartDate: '2026-06-01', actualEndDate: '2026-06-03',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    assignedTo: teamMembers.zhangSan, sortOrder: 1,
+  })
+  const t112 = leafTask({ id: nextId(), wbs: '1.1.2', name: '团队组建', duration: 5,
+    plannedStartDate: '2026-06-04', plannedEndDate: '2026-06-10',
+    actualStartDate: '2026-06-04', actualEndDate: '2026-06-09',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t111.id)),
+    assignedTo: teamMembers.zhangSan, sortOrder: 2,
+  })
+  const t113 = leafMilestone({ id: nextId(), wbs: '1.1.3', name: '启动会议',
+    plannedStartDate: '2026-06-11', plannedEndDate: '2026-06-11',
+    actualStartDate: '2026-06-11', actualEndDate: '2026-06-11',
+    status: TaskStatus.COMPLETED,
+    predecessors: preds(pred(t112.id)),
+    assignedTo: teamMembers.zhangSan, sortOrder: 3,
+  })
+  const n11 = summaryNode({ id: nextId(), wbs: '1.1', name: '项目策划',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.zhangSan,
+    children: [t111, t112, t113], sortOrder: 1,
+  })
+  t111.parentId = n11.id; t112.parentId = n11.id; t113.parentId = n11.id
+  const n1 = summaryNode({ id: nextId(), wbs: '1', name: '项目启动',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.zhangSan,
+    children: [n11], sortOrder: 1,
+  })
+  n11.parentId = n1.id
 
-  const t11: ProjectTask = {
-    id: nextId(), wbs: '1.1', name: '需求分析', description: '收集和分析客户需求',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 5,
-    percentComplete: 100, plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-07',
-    actualStartDate: '2026-06-01', actualEndDate: '2026-06-06',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t1.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
+  // ─── 2.产品设计 ───
+  // 2.1.1 客户调研 (SUMMARY)
+  const t2111 = leafTask({ id: nextId(), wbs: '2.1.1.1', name: '访谈计划', duration: 2,
+    plannedStartDate: '2026-06-01', plannedEndDate: '2026-06-02',
+    actualStartDate: '2026-06-01', actualEndDate: '2026-06-02',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    assignedTo: teamMembers.zhaoLiu, sortOrder: 1,  // ★ 人员变更: 李四→赵六
+  })
+  const t2112 = leafTask({ id: nextId(), wbs: '2.1.1.2', name: '客户访谈', duration: 3,
+    plannedStartDate: '2026-06-03', plannedEndDate: '2026-06-05',
+    actualStartDate: '2026-06-03', actualEndDate: '2026-06-05',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t2111.id)),
+    assignedTo: teamMembers.liSi, sortOrder: 2,
+  })
+  const t2113 = leafTask({ id: nextId(), wbs: '2.1.1.3', name: '需求整理', duration: 2,
+    plannedStartDate: '2026-06-06', plannedEndDate: '2026-06-07',
+    actualStartDate: '2026-06-06', actualEndDate: '2026-06-07',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t2112.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 3,
+  })
+  const n211 = summaryNode({ id: nextId(), wbs: '2.1.1', name: '客户调研',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [t2111, t2112, t2113], sortOrder: 1,
+  })
+  t2111.parentId = n211.id; t2112.parentId = n211.id; t2113.parentId = n211.id
 
-  const t12: ProjectTask = {
-    id: nextId(), wbs: '1.2', name: '概念设计', description: '产品概念方案设计',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 8,
-    percentComplete: 100, plannedStartDate: '2026-06-08', plannedEndDate: '2026-06-17',
-    actualStartDate: '2026-06-07', actualEndDate: '2026-06-16',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_001', predecessorId: t11.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t1.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
+  // ★ 2.1.2 竞品分析 — 已删除
 
-  const t13: ProjectTask = {
-    id: nextId(), wbs: '1.3', name: '详细设计', description: '产品详细工程设计',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 7,
-    percentComplete: 100, plannedStartDate: '2026-06-18', plannedEndDate: '2026-06-26',
-    actualStartDate: '2026-06-17', actualEndDate: '2026-06-25',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_002', predecessorId: t12.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.wangWu, children: [], parentId: t1.id, sortOrder: 3, notes: '', isMilestone: false,
-  }
+  const t213 = leafMilestone({ id: nextId(), wbs: '2.1.3', name: '需求评审',
+    plannedStartDate: '2026-06-12', plannedEndDate: '2026-06-12',
+    actualStartDate: '2026-06-12', actualEndDate: '2026-06-12',
+    status: TaskStatus.COMPLETED,
+    predecessors: preds(pred(t2113.id, DependencyType.FS, 2)),  // ★ 前继变更: 原依赖 t212，现依赖 t2113
+    assignedTo: teamMembers.zhangSan, sortOrder: 3,
+  })
+  const n21 = summaryNode({ id: nextId(), wbs: '2.1', name: '需求分析',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [n211, t213], sortOrder: 1,  // ★ children 变少了
+  })
+  n211.parentId = n21.id; t213.parentId = n21.id
 
-  // ★ 新增任务
-  const t15: ProjectTask = {
-    id: nextId(), wbs: '1.5', name: '安全审查', description: '产品安全性设计审查（新增）',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 3,
-    percentComplete: 100, plannedStartDate: '2026-06-27', plannedEndDate: '2026-06-29',
-    actualStartDate: '2026-06-26', actualEndDate: '2026-06-28',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_NEW', predecessorId: t13.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.sunQi, children: [], parentId: t1.id, sortOrder: 4, notes: 'V2新增安全审查任务', isMilestone: false,
-  }
+  // 2.2 结构设计 (SUMMARY) — 不变
+  const t221 = leafTask({ id: nextId(), wbs: '2.2.1', name: '概念设计', duration: 8,
+    plannedStartDate: '2026-06-13', plannedEndDate: '2026-06-22',
+    actualStartDate: '2026-06-13', actualEndDate: '2026-06-21',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t213.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.liSi, sortOrder: 1,
+  })
+  const t222 = leafTask({ id: nextId(), wbs: '2.2.2', name: '详细设计', duration: 7,
+    plannedStartDate: '2026-06-23', plannedEndDate: '2026-07-01',
+    actualStartDate: '2026-06-22', actualEndDate: '2026-06-30',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t221.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 2,
+  })
+  const t223 = leafTask({ id: nextId(), wbs: '2.2.3', name: 'DFMEA分析', duration: 5,
+    plannedStartDate: '2026-07-02', plannedEndDate: '2026-07-08',
+    actualStartDate: '2026-07-01', actualEndDate: '2026-07-07',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t222.id)),
+    assignedTo: teamMembers.wuJiu, sortOrder: 3,
+  })
+  const n22 = summaryNode({ id: nextId(), wbs: '2.2', name: '结构设计',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [t221, t222, t223], sortOrder: 2,
+  })
+  t221.parentId = n22.id; t222.parentId = n22.id; t223.parentId = n22.id
 
-  const t14: ProjectTask = {
-    id: nextId(), wbs: '1.4', name: '设计评审（里程碑）', description: '设计阶段评审里程碑',
-    type: TaskType.MILESTONE, status: TaskStatus.COMPLETED, duration: 0,
-    percentComplete: 100, plannedStartDate: '2026-07-05', plannedEndDate: '2026-07-05',
-    actualStartDate: '2026-07-03', actualEndDate: '2026-07-03',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_003', predecessorId: t15.id, dependencyType: DependencyType.FS, lagDays: 6 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhangSan, children: [], parentId: t1.id, sortOrder: 5, notes: '关键里程碑', isMilestone: true,
-  }
+  // 2.3 电气设计 (SUMMARY)
+  const t231 = leafTask({ id: nextId(), wbs: '2.3.1', name: '原理图设计', duration: 6,
+    plannedStartDate: '2026-07-09', plannedEndDate: '2026-07-16',
+    actualStartDate: '2026-07-08', actualEndDate: '2026-07-15',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t223.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 1,
+  })
+  const t232 = leafTask({ id: nextId(), wbs: '2.3.2', name: 'PCB布局', duration: 4,
+    plannedStartDate: '2026-07-17', plannedEndDate: '2026-07-22',
+    actualStartDate: '2026-07-16', actualEndDate: '2026-07-21',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t231.id)),
+    assignedTo: teamMembers.zhaoLiu, sortOrder: 2,
+  })
+  const t233 = leafTask({ id: nextId(), wbs: '2.3.3', name: 'BOM编制', duration: 3,
+    plannedStartDate: '2026-07-23', plannedEndDate: '2026-07-25',
+    actualStartDate: '2026-07-22', actualEndDate: '2026-07-24',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t232.id)),
+    assignedTo: teamMembers.wangWu, sortOrder: 3,
+  })
+  const n23 = summaryNode({ id: nextId(), wbs: '2.3', name: '电气设计',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.wangWu,
+    children: [t231, t232, t233], sortOrder: 3,
+  })
+  t231.parentId = n23.id; t232.parentId = n23.id; t233.parentId = n23.id
 
-  t1.children = [t11, t12, t13, t15, t14]
+  // ★ 2.4 安全审查 — 新增 TASK
+  const t24 = leafTask({ id: nextId(), wbs: '2.4', name: '安全审查', duration: 3,
+    plannedStartDate: '2026-07-26', plannedEndDate: '2026-07-28',
+    actualStartDate: '2026-07-25', actualEndDate: '2026-07-27',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t223.id, DependencyType.FS, 1), pred(t233.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.sunQi, sortOrder: 4,
+  })
 
-  // --- 顶层任务 2（变更后） ---
-  const t2: ProjectTask = {
-    id: nextId(), wbs: '2', name: '零部件采购与制造', description: '核心零部件采购和外协制造',
-    type: TaskType.SUMMARY, status: TaskStatus.IN_PROGRESS, duration: 43,
-    percentComplete: 65, plannedStartDate: '2026-07-06', plannedEndDate: '2026-09-04',
-    actualStartDate: '2026-07-06', actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_004', predecessorId: t14.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhouBa, children: [], parentId: null, sortOrder: 2, notes: '', isMilestone: false,
-  }
+  // 2.5 设计评审 — 前继增加 t24
+  const t25 = leafMilestone({ id: nextId(), wbs: '2.5', name: '设计评审',
+    plannedStartDate: '2026-07-29', plannedEndDate: '2026-07-29',  // ★ 日期变更
+    actualStartDate: '2026-07-28', actualEndDate: '2026-07-28',
+    status: TaskStatus.COMPLETED,
+    predecessors: preds(
+      pred(t223.id, DependencyType.FS, 1),
+      pred(t233.id, DependencyType.FS, 1),
+      pred(t24.id, DependencyType.FS, 1),  // ★ 新增前继
+    ),
+    assignedTo: teamMembers.zhangSan, sortOrder: 5,
+  })
 
-  const t21: ProjectTask = {
-    id: nextId(), wbs: '2.1', name: '核心部件采购', description: '关键机械部件采购',
-    type: TaskType.TASK, status: TaskStatus.COMPLETED, duration: 15,
-    percentComplete: 100, plannedStartDate: '2026-07-06', plannedEndDate: '2026-07-26',
-    actualStartDate: '2026-07-06', actualEndDate: '2026-07-25',
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t2.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
+  const n2 = summaryNode({ id: nextId(), wbs: '2', name: '产品设计',
+    status: TaskStatus.COMPLETED, assignedTo: teamMembers.liSi,
+    children: [n21, n22, n23, t24, t25], sortOrder: 2,  // ★ children 多了一个
+  })
+  n21.parentId = n2.id; n22.parentId = n2.id; n23.parentId = n2.id; t24.parentId = n2.id; t25.parentId = n2.id
 
-  // ★ 新任务替换旧任务 "2.2 电气元件采购" → "2.2 一体化电气模组采购"
-  const t22New: ProjectTask = {
-    id: nextId(), wbs: '2.2', name: '一体化电气模组采购', description: 'PLC+传感器一体化模组采购（替换原电气元件采购）',
-    type: TaskType.TASK, status: TaskStatus.IN_PROGRESS, duration: 18,
-    percentComplete: 40, plannedStartDate: '2026-07-06', plannedEndDate: '2026-07-30',
-    actualStartDate: '2026-07-06', actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.wangWu, children: [], parentId: t2.id, sortOrder: 2, notes: 'V2替换为一体化模组采购', isMilestone: false,
-  }
+  // ─── 3.采购与制造 ───
+  const t311 = leafTask({ id: nextId(), wbs: '3.1.1', name: '核心部件采购', duration: 15,
+    plannedStartDate: '2026-07-30', plannedEndDate: '2026-08-17',  // ★ 日期变更
+    actualStartDate: '2026-07-30', actualEndDate: null,
+    status: TaskStatus.IN_PROGRESS, percentComplete: 80,
+    predecessors: preds(pred(t25.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.qianShi, sortOrder: 1,  // ★ 人员变更: 李四→钱十
+  })
+  const t312 = leafTask({ id: nextId(), wbs: '3.1.2', name: '一体化电气模组采购', duration: 18,  // ★ 名称+工期变更
+    plannedStartDate: '2026-07-30', plannedEndDate: '2026-08-22',
+    actualStartDate: '2026-07-30', actualEndDate: null,
+    status: TaskStatus.IN_PROGRESS, percentComplete: 40,
+    predecessors: preds(pred(t25.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.qianShi, sortOrder: 2,  // ★ 人员变更: 王五→钱十
+  })
+  const t313 = leafTask({ id: nextId(), wbs: '3.1.3', name: '标准件采购', duration: 8,
+    plannedStartDate: '2026-07-30', plannedEndDate: '2026-08-08',
+    actualStartDate: '2026-07-30', actualEndDate: '2026-08-07',
+    status: TaskStatus.COMPLETED, percentComplete: 100,
+    predecessors: preds(pred(t25.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.qianShi, sortOrder: 3,
+  })
+  const n31 = summaryNode({ id: nextId(), wbs: '3.1', name: '零部件采购',
+    status: TaskStatus.IN_PROGRESS, assignedTo: teamMembers.zhouBa,
+    children: [t311, t312, t313], sortOrder: 1,
+  })
+  t311.parentId = n31.id; t312.parentId = n31.id; t313.parentId = n31.id
 
-  const t23: ProjectTask = {
-    id: nextId(), wbs: '2.3', name: '外协加工', description: '机加工外协',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 20,
-    percentComplete: 0, plannedStartDate: '2026-07-31', plannedEndDate: '2026-08-27',
+  const t321 = leafTask({ id: nextId(), wbs: '3.2.1', name: '机加工外协', duration: 18,  // ★ 20→18天
+    plannedStartDate: '2026-08-23', plannedEndDate: '2026-09-17',  // ★ 日期变更
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [
-      { id: 'PRED_005', predecessorId: t21.id, dependencyType: DependencyType.FS, lagDays: 1 },
-      { id: 'PRED_006', predecessorId: t22New.id, dependencyType: DependencyType.FS, lagDays: 1 },
-    ],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhouBa, children: [], parentId: t2.id, sortOrder: 3, notes: '', isMilestone: false,
-  }
-
-  const t24: ProjectTask = {
-    id: nextId(), wbs: '2.4', name: '来料检验', description: '所有外购和加工件检验',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 5,
-    percentComplete: 0, plannedStartDate: '2026-08-28', plannedEndDate: '2026-09-04',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t311.id), pred(t312.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.zhouBa, sortOrder: 1,
+  })
+  const t322 = leafTask({ id: nextId(), wbs: '3.2.2', name: '表面处理', duration: 7,
+    plannedStartDate: '2026-09-18', plannedEndDate: '2026-09-26',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_007', predecessorId: t23.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t2.id, sortOrder: 4, notes: '', isMilestone: false,
-  }
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t321.id)),
+    assignedTo: teamMembers.zhouBa, sortOrder: 2,
+  })
+  const n32 = summaryNode({ id: nextId(), wbs: '3.2', name: '外协加工',
+    status: TaskStatus.PENDING, assignedTo: teamMembers.zhouBa,
+    children: [t321, t322], sortOrder: 2,
+  })
+  t321.parentId = n32.id; t322.parentId = n32.id
 
-  t2.children = [t21, t22New, t23, t24]
-
-  // --- 顶层任务 3 ---
-  const t3: ProjectTask = {
-    id: nextId(), wbs: '3', name: '系统装配', description: '产品整机装配',
-    type: TaskType.SUMMARY, status: TaskStatus.PENDING, duration: 28, // 工期延长
-    percentComplete: 0, plannedStartDate: '2026-09-05', plannedEndDate: '2026-10-13',
+  const t33 = leafTask({ id: nextId(), wbs: '3.3', name: '来料检验', duration: 5,
+    plannedStartDate: '2026-09-27', plannedEndDate: '2026-10-03',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_008', predecessorId: t24.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhouBa, children: [], parentId: null, sortOrder: 3, notes: '', isMilestone: false,
-  }
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t322.id), pred(t313.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.wuJiu, sortOrder: 3,
+  })
 
-  const t31: ProjectTask = {
-    id: nextId(), wbs: '3.1', name: '机械装配', description: '机械结构件装配',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 18, // ★ 从 15→18天
-    percentComplete: 0, plannedStartDate: '2026-09-05', plannedEndDate: '2026-09-30',
+  const n3 = summaryNode({ id: nextId(), wbs: '3', name: '采购与制造',
+    status: TaskStatus.IN_PROGRESS, assignedTo: teamMembers.zhouBa,
+    children: [n31, n32, t33], sortOrder: 3,
+  })
+  n31.parentId = n3.id; n32.parentId = n3.id; t33.parentId = n3.id
+
+  // ─── 4.系统装配 ───
+  const t41 = leafTask({ id: nextId(), wbs: '4.1', name: '机械装配', duration: 18,  // ★ 15→18天
+    plannedStartDate: '2026-10-04', plannedEndDate: '2026-10-27',  // ★ 日期变更
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.liSi, children: [], parentId: t3.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
-
-  const t32: ProjectTask = {
-    id: nextId(), wbs: '3.2', name: '电气装配', description: '电气柜和线缆装配',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 8, // ★ 从 10→8天
-    percentComplete: 0, plannedStartDate: '2026-09-10', plannedEndDate: '2026-09-21',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t33.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.liSi, sortOrder: 1,
+  })
+  const t42 = leafTask({ id: nextId(), wbs: '4.2', name: '电气装配', duration: 8,  // ★ 10→8天
+    plannedStartDate: '2026-10-11', plannedEndDate: '2026-10-21',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_009', predecessorId: t31.id, dependencyType: DependencyType.SS, lagDays: 5 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.wangWu, children: [], parentId: t3.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
-
-  const t33: ProjectTask = {
-    id: nextId(), wbs: '3.3', name: '装配检验', description: '装配完成后检验',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 3,
-    percentComplete: 0, plannedStartDate: '2026-10-08', plannedEndDate: '2026-10-13',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t41.id, DependencyType.SS, 5)),
+    assignedTo: teamMembers.wangWu, sortOrder: 2,
+  })
+  const t43 = leafMilestone({ id: nextId(), wbs: '4.3', name: '装配检验',
+    plannedStartDate: '2026-10-29', plannedEndDate: '2026-10-29',  // ★ 日期变更
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [
-      { id: 'PRED_010', predecessorId: t31.id, dependencyType: DependencyType.FS, lagDays: 1 },
-      { id: 'PRED_011', predecessorId: t32.id, dependencyType: DependencyType.FS, lagDays: 1 },
-    ],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.sunQi, children: [], parentId: t3.id, sortOrder: 3, notes: '', isMilestone: false,
-  }
+    status: TaskStatus.PENDING,
+    predecessors: preds(pred(t41.id), pred(t42.id)),
+    assignedTo: teamMembers.sunQi, sortOrder: 3,
+  })
 
-  t3.children = [t31, t32, t33]
+  const n4 = summaryNode({ id: nextId(), wbs: '4', name: '系统装配',
+    status: TaskStatus.PENDING, assignedTo: teamMembers.zhouBa,
+    children: [t41, t42, t43], sortOrder: 4,
+  })
+  t41.parentId = n4.id; t42.parentId = n4.id; t43.parentId = n4.id
 
-  // --- 顶层任务 4 ---
-  const t4: ProjectTask = {
-    id: nextId(), wbs: '4', name: '系统调试与测试', description: '整机调试和性能测试',
-    type: TaskType.SUMMARY, status: TaskStatus.PENDING, duration: 30,
-    percentComplete: 0, plannedStartDate: '2026-10-15', plannedEndDate: '2026-11-25',
+  // ─── 5.测试与验收 ───
+  const t51 = leafTask({ id: nextId(), wbs: '5.1', name: '功能调试', duration: 12,
+    plannedStartDate: '2026-10-30', plannedEndDate: '2026-11-14',  // ★ 日期变更
+    actualStartDate: '2026-10-30', actualEndDate: null,
+    status: TaskStatus.IN_PROGRESS, percentComplete: 30,  // ★ 状态+%变更
+    predecessors: preds(pred(t43.id, DependencyType.FS, 1)),
+    assignedTo: teamMembers.zhaoLiu, sortOrder: 1,
+  })
+  const t52 = leafTask({ id: nextId(), wbs: '5.2', name: '性能测试', duration: 10,
+    plannedStartDate: '2026-11-15', plannedEndDate: '2026-11-28',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_012', predecessorId: t33.id, dependencyType: DependencyType.FS, lagDays: 2 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhaoLiu, children: [], parentId: null, sortOrder: 4, notes: '', isMilestone: false,
-  }
-
-  const t41: ProjectTask = {
-    id: nextId(), wbs: '4.1', name: '功能调试', description: '基本功能调试',
-    type: TaskType.TASK, status: TaskStatus.IN_PROGRESS, duration: 12, // ★ 状态从 PENDING→IN_PROGRESS
-    percentComplete: 30, plannedStartDate: '2026-10-15', plannedEndDate: '2026-10-30',
-    actualStartDate: '2026-10-15', actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [], cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhaoLiu, children: [], parentId: t4.id, sortOrder: 1, notes: '', isMilestone: false,
-  }
-
-  const t42: ProjectTask = {
-    id: nextId(), wbs: '4.2', name: '性能测试', description: '各种工况性能测试',
-    type: TaskType.TASK, status: TaskStatus.PENDING, duration: 10,
-    percentComplete: 0, plannedStartDate: '2026-10-31', plannedEndDate: '2026-11-13',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t51.id)),
+    assignedTo: teamMembers.sunQi, sortOrder: 2,
+  })
+  const t53 = leafTask({ id: nextId(), wbs: '5.3', name: '环境试验', duration: 8,
+    plannedStartDate: '2026-11-29', plannedEndDate: '2026-12-08',
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.ASAP, constraintDate: null,
-    predecessors: [{ id: 'PRED_013', predecessorId: t41.id, dependencyType: DependencyType.FS, lagDays: 1 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.sunQi, children: [], parentId: t4.id, sortOrder: 2, notes: '', isMilestone: false,
-  }
-
-  const t43: ProjectTask = {
-    id: nextId(), wbs: '4.3', name: '验收测试（里程碑）', description: '客户验收测试',
-    type: TaskType.MILESTONE, status: TaskStatus.PENDING, duration: 0,
-    percentComplete: 0, plannedStartDate: '2026-11-25', plannedEndDate: '2026-11-25',
+    status: TaskStatus.PENDING, percentComplete: 0,
+    predecessors: preds(pred(t52.id)),
+    assignedTo: teamMembers.sunQi, sortOrder: 3,
+  })
+  // ★ 5.4 验收测试 — 约束日期变更
+  const t54 = leafMilestone({ id: nextId(), wbs: '5.4', name: '验收测试',
+    plannedStartDate: '2026-12-10', plannedEndDate: '2026-12-10',  // ★ 日期变更
     actualStartDate: null, actualEndDate: null,
-    targetStartDate: '2026-06-01', targetEndDate: '2026-12-31',
-    constraintType: ConstraintType.MFO, constraintDate: '2026-11-25',
-    predecessors: [{ id: 'PRED_014', predecessorId: t42.id, dependencyType: DependencyType.FS, lagDays: 0 }],
-    cpmDates: { earliestStart: null, earliestFinish: null, latestStart: null, latestFinish: null, totalFloat: 0, freeFloat: 0, isCritical: false },
-    assignedTo: teamMembers.zhangSan, children: [], parentId: t4.id, sortOrder: 3, notes: '最终验收里程碑', isMilestone: true,
-  }
+    status: TaskStatus.PENDING,
+    predecessors: preds(pred(t53.id, DependencyType.FS, 2)),
+    constraintType: ConstraintType.MFO, constraintDate: '2026-12-31',  // ★ 约束日期变更
+    assignedTo: teamMembers.zhangSan, sortOrder: 4,
+  })
 
-  t4.children = [t41, t42, t43]
+  const n5 = summaryNode({ id: nextId(), wbs: '5', name: '测试与验收',
+    status: TaskStatus.PENDING, assignedTo: teamMembers.zhaoLiu,
+    children: [t51, t52, t53, t54], sortOrder: 5,
+  })
+  t51.parentId = n5.id; t52.parentId = n5.id; t53.parentId = n5.id; t54.parentId = n5.id
 
-  const allTasks = [
-    t1, t11, t12, t13, t14, t15,
-    t2, t21, t22New, t23, t24,
-    t3, t31, t32, t33,
-    t4, t41, t42, t43,
+  const allLeafs = [
+    t111, t112, t113,
+    t2111, t2112, t2113, t213,
+    t221, t222, t223,
+    t231, t232, t233,
+    t24, t25,
+    t311, t312, t313,
+    t321, t322, t33,
+    t41, t42, t43,
+    t51, t52, t53, t54,
   ]
 
-  const calculatedTasks = calculateCriticalPath(allTasks, '2026-06-01', '2026-12-31')
-
-  function rebuildTree(flat: ProjectTask[]): ProjectTask[] {
-    const map = new Map<string, ProjectTask>(flat.map(t => [t.id, { ...t, children: [] as ProjectTask[] }]))
-    const roots: ProjectTask[] = []
-    for (const t of map.values()) {
-      if (t.parentId && map.has(t.parentId)) {
-        map.get(t.parentId)!.children.push(t)
-      } else if (!t.parentId) {
-        roots.push(t)
-      }
-    }
-    function sortChildren(task: ProjectTask) {
-      task.children.sort((a: ProjectTask, b: ProjectTask) => a.sortOrder - b.sortOrder)
-      task.children.forEach(sortChildren)
-    }
-    roots.sort((a: ProjectTask, b: ProjectTask) => a.sortOrder - b.sortOrder)
-    roots.forEach(sortChildren)
-    return roots
-  }
-
-  const rootedTasks = rebuildTree(calculatedTasks)
-
-  return {
-    id: 'PROJECT_PLAN_001',
-    name: '智能装配线开发项目',
-    projectNumber: 'PRJ-2026-0001',
-    targetStartDate: '2026-06-01',
-    targetEndDate: '2026-12-31',
-    tasks: rootedTasks,
-    status: 'Active',
-    projectManager: teamMembers.zhangSan,
-  }
+  const calculated = calculateCriticalPath(allLeafs, '2026-06-01', '2026-12-31')
+  const allNodes = [n1, n11, n2, n21, n211, n22, n23, n3, n31, n32, n4, n5, ...calculated]
+  return rebuildTree(allNodes)
 }
 
 // ============================================================
-// 生成快照工具函数
+// rebuildTree / flatTasks（统一复用）
 // ============================================================
 
-function snapshotPlan(
-  plan: ProjectPlan,
+function rebuildTree(flat: TaskNode[]): TaskNode[] {
+  const map = new Map<string, TaskNode>(flat.map(t => [t.id, { ...t, children: [] as TaskNode[] }]))
+  const roots: TaskNode[] = []
+  for (const t of map.values()) {
+    if (t.parentId && map.has(t.parentId)) {
+      map.get(t.parentId)!.children.push(t)
+    } else if (!t.parentId) {
+      roots.push(t)
+    }
+  }
+  function sortChildren(task: TaskNode, depth: number) {
+    if (depth > 10) return
+    task.children.sort((a, b) => a.sortOrder - b.sortOrder)
+    task.children.forEach(c => sortChildren(c, depth + 1))
+  }
+  roots.sort((a, b) => a.sortOrder - b.sortOrder)
+  roots.forEach(c => sortChildren(c, 0))
+  return roots
+}
+
+function flatTasks(tasks: TaskNode[], maxDepth = 10): TaskNode[] {
+  const result: TaskNode[] = []
+  function walk(list: TaskNode[], depth: number) {
+    if (depth > maxDepth) return
+    for (const t of list) {
+      result.push(t)
+      if (t.children.length > 0) walk(t.children, depth + 1)
+    }
+  }
+  walk(tasks, 0)
+  return result
+}
+
+// ============================================================
+// 构建 Snapshot
+// ============================================================
+
+function buildSnapshot(
+  taskTree: TaskNode[],
   name: string,
   description: string,
   createdAt: string,
   fixedId: string
 ): Snapshot {
-  const criticalPath = getCriticalPathTaskIds(flatTasks(plan.tasks))
-  const flat = flatTasks(plan.tasks)
+  const flat = flatTasks(taskTree)
+  const leafs = flat.filter(t => t.type !== TaskType.SUMMARY)
+  const criticalPath = leafs.filter(t => t.cpmDates.isCritical).map(t => t.id)
 
   return {
-    meta: {
-      id: fixedId,
-      name,
-      createdAt,
-      description,
-      projectPlanId: plan.id,
-      criticalPath,
-      projectedEndDate: plan.targetEndDate,
-      totalTasks: flat.length,
-      completedTasks: flat.filter(t => t.status === TaskStatus.COMPLETED).length,
-      overallPercentComplete: Math.round(
-        flat.reduce((sum, t) => sum + t.percentComplete, 0) / flat.length
-      ),
-    },
-    plan: JSON.parse(JSON.stringify(plan)), // 深拷贝冻结
+    id: fixedId,
+    name, description, createdAt,
+    projectNumber: 'PRJ-2026-0001',
+    status: 'Active',
+    projectManager: teamMembers.zhangSan,
+    targetStartDate: '2026-06-01',
+    targetEndDate: '2026-12-31',
+    projectedEndDate: '2026-12-31',
+    totalTasks: leafs.length,
+    completedTasks: leafs.filter(t => t.status === TaskStatus.COMPLETED).length,
+    overallPercentComplete: Math.round(
+      leafs.reduce((s, t) => s + t.percentComplete, 0) / Math.max(leafs.length, 1)
+    ),
+    criticalPath,
+    taskTree: JSON.parse(JSON.stringify(taskTree)),
   }
-}
-
-function flatTasks(tasks: ProjectTask[]): ProjectTask[] {
-  const result: ProjectTask[] = []
-  function walk(list: ProjectTask[]) {
-    for (const t of list) {
-      result.push(t)
-      if (t.children.length > 0) walk(t.children)
-    }
-  }
-  walk(tasks)
-  return result
 }
 
 // ============================================================
-// 预生成快照列表
+// 导出快照列表
 // ============================================================
 
 export function loadMockSnapshots(): Snapshot[] {
-  const plan1 = createPlanV1()
-  const plan2 = createPlanV2()
+  const v1Tree = createPlanV1()
+  const v2Tree = createPlanV2()
 
   return [
-    snapshotPlan(plan1, '基线 V1.0 - 初始计划', '2026年6月初始项目计划基线', '2026-06-01T00:00:00Z', 'SNAP_V1_0'),
-    snapshotPlan(plan1, '快照 V1.1 - 设计完成', '设计阶段完成时的状态冻结', '2026-06-28T00:00:00Z', 'SNAP_V1_1'),
-    snapshotPlan(plan2, '快照 V2.0 - 采购阶段更新', '采购阶段根据实际情况调整计划', '2026-07-20T00:00:00Z', 'SNAP_V2_0'),
+    buildSnapshot(v1Tree, '基线 V1.0 - 初始计划', '2026年6月初始项目计划基线', '2026-06-01T00:00:00Z', 'SNAP_V1_0'),
+    buildSnapshot(v1Tree, '快照 V1.1 - 设计完成', '设计阶段完成时的状态冻结', '2026-06-28T00:00:00Z', 'SNAP_V1_1'),
+    buildSnapshot(v2Tree, '快照 V2.0 - 采购阶段调整', '采购阶段调整计划，新增安全审查、替换模组采购', '2026-07-20T00:00:00Z', 'SNAP_V2_0'),
   ]
 }
 
-/** 获取所有快照（从 Pinia Store 或首次加载） */
 export { teamMembers }

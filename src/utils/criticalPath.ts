@@ -22,7 +22,7 @@
 // ============================================================
 
 import {
-  type ProjectTask,
+  type TaskNode,
   type CPMDates,
   type TaskPredecessor,
 } from '@/types'
@@ -263,10 +263,10 @@ function calculateFreeFloat(
  * @returns 更新了 CPM 字段的任务列表
  */
 export function calculateCriticalPath(
-  tasks: ProjectTask[],
+  tasks: TaskNode[],
   targetStartDate: string,
   targetEndDate: string
-): ProjectTask[] {
+): TaskNode[] {
   // 构建 CPM 输入
   const taskMap = new Map<string, CPMTaskInput>()
   const cpmTasks: CPMTaskInput[] = []
@@ -335,7 +335,7 @@ function offsetToDate(baseDate: string, offsetDays: number): string {
 /**
  * 获取关键路径上的任务 ID 列表
  */
-export function getCriticalPathTaskIds(tasks: ProjectTask[]): string[] {
+export function getCriticalPathTaskIds(tasks: TaskNode[]): string[] {
   return tasks.filter(t => t.cpmDates.isCritical).map(t => t.id)
 }
 

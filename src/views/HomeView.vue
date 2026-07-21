@@ -106,31 +106,31 @@ onMounted(() => {
         </div>
       </template>
       <el-table :data="store.sortedSnapshots.slice(0, 5)" stripe size="large" style="width: 100%;">
-        <el-table-column prop="meta.name" label="快照名称" min-width="180">
+        <el-table-column prop="name" label="快照名称" min-width="180">
           <template #default="{ row }">
             <el-icon color="#409eff"><CameraFilled /></el-icon>
-            <span style="margin-left: 8px; font-weight: 500;">{{ row.meta.name }}</span>
+            <span style="margin-left: 8px; font-weight: 500;">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="meta.description" label="描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="meta.createdAt" label="创建时间" width="180">
+        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="创建时间" width="180">
           <template #default="{ row }">
-            {{ new Date(row.meta.createdAt).toLocaleString('zh-CN') }}
+            {{ new Date(row.createdAt).toLocaleString('zh-CN') }}
           </template>
         </el-table-column>
         <el-table-column label="状态" width="130">
           <template #default="{ row }">
             <el-tag type="success" effect="light">
-              任务 {{ row.meta.completedTasks }}/{{ row.meta.totalTasks }}
+              任务 {{ row.completedTasks }}/{{ row.totalTasks }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="完成度" width="150">
           <template #default="{ row }">
             <el-progress
-              :percentage="row.meta.overallPercentComplete"
+              :percentage="row.overallPercentComplete"
               :stroke-width="8"
-              :color="row.meta.overallPercentComplete === 100 ? '#67c23a' : '#409eff'"
+              :color="row.overallPercentComplete === 100 ? '#67c23a' : '#409eff'"
             />
           </template>
         </el-table-column>

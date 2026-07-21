@@ -30,11 +30,11 @@ function viewDetail(snapshot: Snapshot) {
 async function confirmDelete(snapshot: Snapshot) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除快照 "${snapshot.meta.name}" 吗？此操作不可撤销。`,
+      `确定要删除快照 "${snapshot.name}" 吗？此操作不可撤销。`,
       '确认删除',
       { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
     )
-    store.deleteSnapshot(snapshot.meta.id)
+    store.deleteSnapshot(snapshot.id)
     ElMessage.success('快照已删除')
   } catch {
     // 取消
@@ -49,14 +49,15 @@ function createNewSnapshot() {
 // 获取关键路径任务名称
 function getCriticalPathNames(snapshot: Snapshot): string {
   const taskMap = new Map<string, string>()
-  function walk(tasks: any[]) {
+  function walk(tasks: any[], depth: number) {
+    if (depth > 10) return
     for (const t of tasks) {
       taskMap.set(t.id, t.name)
-      if (t.children) walk(t.children)
+      if (t.children) walk(t.children, depth + 1)
     }
   }
-  walk(snapshot.plan.tasks)
-  return snapshot.meta.criticalPath.map(id => taskMap.get(id) || '?').join(' → ')
+  walk(snapshot.taskTree, 0)
+  return snapshot.criticalPath.map(id => taskMap.get(id) || '?').join(' → ')
 }
 </script>
 
@@ -89,22 +90,22 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         :data="store.sortedSnapshots"
         stripe
         size="large"
-        row-key="meta.id"
+        row-key="id"
         style="width: 100%;"
       >
         <el-table-column type="expand">
           <template #default="{ row }: { row: Snapshot }">
             <div style="padding: 16px 24px;">
               <el-descriptions :column="3" border size="small">
-                <el-descriptions-item label="快照 ID">{{ row.meta.id }}</el-descriptions-item>
-                <el-descriptions-item label="项目名称">{{ row.plan.name }}</el-descriptions-item>
-                <el-descriptions-item label="项目编号">{{ row.plan.projectNumber }}</el-descriptions-item>
-                <el-descriptions-item label="目标开始日期">{{ row.plan.targetStartDate }}</el-descriptions-item>
-                <el-descriptions-item label="目标完成日期">{{ row.plan.targetEndDate }}</el-descriptions-item>
-                <el-descriptions-item label="项目状态">{{ row.plan.status }}</el-descriptions-item>
+                <el-descriptions-item label="快照 ID">{{ row.id }}</el-descriptions-item>
+                <el-descriptions-item label="目标开始日期">{{ row.targetStartDate }}</el-descriptions-item>
+                <el-descriptions-item label="目标完成日期">{{ row.targetEndDate }}</el-descriptions-item>
+                <el-descriptions-item label="项目编号">{{ row.projectNumber }}</el-descriptions-item>
+                <el-descriptions-item label="项目状态">{{ row.status }}</el-descriptions-item>
+                <el-descriptions-item label="项目负责人">{{ row.projectManager?.name ?? '—' }}</el-descriptions-item>
                 <el-descriptions-item label="关键路径">
                   <el-tag
-                    v-for="(taskId, idx) in row.meta.criticalPath"
+                    v-for="(taskId, idx) in row.criticalPath"
                     :key="taskId"
                     size="small"
                     type="danger"
@@ -113,7 +114,7 @@ function getCriticalPathNames(snapshot: Snapshot): string {
                   >
                     {{ taskId }}
                   </el-tag>
-                  <span v-if="row.meta.criticalPath.length === 0" style="color: #909399;">无</span>
+                  <span v-if="row.criticalPath.length === 0" style="color: #909399;">无</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="关键路径详情" :span="2">
                   <span style="font-size: 12px; color: #606266;">{{ getCriticalPathNames(row) }}</span>
@@ -123,21 +124,21 @@ function getCriticalPathNames(snapshot: Snapshot): string {
           </template>
         </el-table-column>
 
-        <el-table-column prop="meta.name" label="快照名称" min-width="200">
+        <el-table-column prop="name" label="快照名称" min-width="200">
           <template #default="{ row }: { row: Snapshot }">
             <div style="display: flex; align-items: center; gap: 8px;">
               <el-icon :size="20" color="#409eff"><CameraFilled /></el-icon>
-              <span style="font-weight: 600;">{{ row.meta.name }}</span>
-              <el-tag v-if="row.meta.name.includes('V1.0')" type="success" size="small" effect="dark">基线</el-tag>
+              <span style="font-weight: 600;">{{ row.name }}</span>
+              <el-tag v-if="row.name.includes('V1.0')" type="success" size="small" effect="dark">基线</el-tag>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column prop="meta.description" label="描述" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
 
         <el-table-column label="创建时间" width="180">
           <template #default="{ row }: { row: Snapshot }">
-            <span style="font-size: 13px;">{{ formatDate(row.meta.createdAt) }}</span>
+            <span style="font-size: 13px;">{{ formatDate(row.createdAt) }}</span>
           </template>
         </el-table-column>
 
@@ -145,10 +146,10 @@ function getCriticalPathNames(snapshot: Snapshot): string {
           <template #default="{ row }: { row: Snapshot }">
             <div style="display: flex; align-items: center; gap: 8px;">
               <el-progress
-                :percentage="row.meta.overallPercentComplete"
+                :percentage="row.overallPercentComplete"
                 :stroke-width="6"
                 style="flex: 1;"
-                :color="row.meta.overallPercentComplete === 100 ? '#67c23a' : '#409eff'"
+                :color="row.overallPercentComplete === 100 ? '#67c23a' : '#409eff'"
               />
             </div>
           </template>
@@ -157,7 +158,7 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         <el-table-column label="任务统计" width="140">
           <template #default="{ row }: { row: Snapshot }">
             <el-tag type="success" effect="light" size="small">
-              {{ row.meta.completedTasks }}/{{ row.meta.totalTasks }} 已完成
+              {{ row.completedTasks }}/{{ row.totalTasks }} 已完成
             </el-tag>
           </template>
         </el-table-column>
@@ -185,28 +186,28 @@ function getCriticalPathNames(snapshot: Snapshot): string {
     <!-- 快照详情对话框 -->
     <el-dialog
       v-model="showDetailDialog"
-      :title="viewingSnapshot?.meta.name"
+      :title="viewingSnapshot?.name"
       width="900px"
       destroy-on-close
     >
       <template v-if="viewingSnapshot">
         <el-descriptions :column="2" border size="small" style="margin-bottom: 24px;">
-          <el-descriptions-item label="快照 ID">{{ viewingSnapshot.meta.id }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ formatDate(viewingSnapshot.meta.createdAt) }}</el-descriptions-item>
-          <el-descriptions-item label="描述">{{ viewingSnapshot.meta.description }}</el-descriptions-item>
-          <el-descriptions-item label="项目名称">{{ viewingSnapshot.plan.name }}</el-descriptions-item>
-          <el-descriptions-item label="总任务数">{{ viewingSnapshot.meta.totalTasks }}</el-descriptions-item>
-          <el-descriptions-item label="完成任务数">{{ viewingSnapshot.meta.completedTasks }}</el-descriptions-item>
+          <el-descriptions-item label="快照 ID">{{ viewingSnapshot.id }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatDate(viewingSnapshot.createdAt) }}</el-descriptions-item>
+          <el-descriptions-item label="描述">{{ viewingSnapshot.description }}</el-descriptions-item>
+          <el-descriptions-item label="项目编号">{{ viewingSnapshot.projectNumber }}</el-descriptions-item>
+          <el-descriptions-item label="总任务数">{{ viewingSnapshot.totalTasks }}</el-descriptions-item>
+          <el-descriptions-item label="完成任务数">{{ viewingSnapshot.completedTasks }}</el-descriptions-item>
           <el-descriptions-item label="总体完成度">
-            <el-progress :percentage="viewingSnapshot.meta.overallPercentComplete" :stroke-width="8" />
+            <el-progress :percentage="viewingSnapshot.overallPercentComplete" :stroke-width="8" />
           </el-descriptions-item>
-          <el-descriptions-item label="关键路径任务数">{{ viewingSnapshot.meta.criticalPath.length }}</el-descriptions-item>
+          <el-descriptions-item label="关键路径任务数">{{ viewingSnapshot.criticalPath.length }}</el-descriptions-item>
         </el-descriptions>
 
         <h4 style="margin-bottom: 12px;">关键路径任务</h4>
         <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px;">
           <el-tag
-            v-for="id in viewingSnapshot.meta.criticalPath"
+            v-for="id in viewingSnapshot.criticalPath"
             :key="id"
             type="danger"
             effect="light"
