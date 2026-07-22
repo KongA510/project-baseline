@@ -122,6 +122,7 @@ export interface Snapshot {
   overallPercentComplete: number
   // 关键路径
   criticalPath: string[]
+  isBaseline: boolean
   // ★ 任务树（第2层入口，递归嵌套）
   taskTree: TaskNode[]
 }
@@ -211,4 +212,28 @@ export interface AIAnalysisResult {
   status: AIAnalysisStatus
   chunks: AIAnalysisChunk[]
   error?: string
+}
+
+
+// ============================================================
+// SnapshotSummary = first-layer projection (NO taskTree)
+// Used by snapshot list / selection / home page.
+// Second layer (taskTree) is loaded only when comparing.
+// ============================================================
+export interface SnapshotSummary {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  projectNumber: string
+  status: string
+  projectManager: TeamMember | null
+  targetStartDate: string
+  targetEndDate: string
+  projectedEndDate: string
+  totalTasks: number
+  completedTasks: number
+  overallPercentComplete: number
+  criticalPath: string[]
+  isBaseline: boolean
 }

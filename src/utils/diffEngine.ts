@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // 快照差异比对引擎 v2
 // 左右树状结构：按 WBS/名称匹配，逐行对比两棵完整任务树
 // ============================================================
@@ -88,8 +88,8 @@ function compareTaskFields(oldTask: TaskNode, newTask: TaskNode): TaskFieldChang
       oldVal = oldTask.isMilestone ? '是' : '否'
       newVal = newTask.isMilestone ? '是' : '否'
     } else {
-      oldVal = oldTask[field] as string | number | null
-      newVal = newTask[field] as string | number | null
+      oldVal = (oldTask as unknown as Record<string, unknown>)[field] as string | number | null
+      newVal = (newTask as unknown as Record<string, unknown>)[field] as string | number | null
     }
 
     const ov = oldVal === '' || oldVal === undefined ? null : oldVal

@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBaselineStore } from '@/store/baseline'
 import { ElMessage } from 'element-plus'
-import type { Snapshot } from '@/types'
+import type { SnapshotSummary } from '@/types'
 
 const router = useRouter()
 const store = useBaselineStore()
@@ -48,8 +48,8 @@ function shortId(id: string): string {
 }
 
 // 可用快照列表（过滤掉另一侧已选的）
-const availableForLeft = ref<Snapshot[]>([])
-const availableForRight = ref<Snapshot[]>([])
+const availableForLeft = ref<SnapshotSummary[]>([])
+const availableForRight = ref<SnapshotSummary[]>([])
 </script>
 
 <template>
@@ -203,23 +203,23 @@ const availableForRight = ref<Snapshot[]>([])
         :data="store.sortedSnapshots"
         stripe
         size="default"
-        @row-click="(row: Snapshot) => { if (!snapshotId1) { snapshotId1 = row.id } else if (!snapshotId2) { snapshotId2 = row.id } }"
+        @row-click="(row: SnapshotSummary) => { if (!snapshotId1) { snapshotId1 = row.id } else if (!snapshotId2) { snapshotId2 = row.id } }"
         style="cursor: pointer;"
       >
         <el-table-column prop="name" label="名称" min-width="180">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <el-icon color="#409eff"><CameraFilled /></el-icon>
             <span style="margin-left: 8px; font-weight: 500;">{{ row.name }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="220" />
         <el-table-column label="创建时间" width="180">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             {{ formatDate(row.createdAt) }}
           </template>
         </el-table-column>
         <el-table-column label="A" width="60" align="center">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <el-radio
               :model-value="snapshotId1"
               :value="row.id"
@@ -228,7 +228,7 @@ const availableForRight = ref<Snapshot[]>([])
           </template>
         </el-table-column>
         <el-table-column label="B" width="60" align="center">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <el-radio
               :model-value="snapshotId2"
               :value="row.id"

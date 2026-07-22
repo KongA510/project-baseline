@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // 导出服务 — Excel (任务比对) + Word (变更详情 / AI分析)
 // ============================================================
 
@@ -220,8 +220,8 @@ export async function exportChangeDetailWord(result: ComparisonResult, snapshotA
         new TableRow({
           children: [
             createCell(c.fieldLabel, 2400),
-            createCell(c.oldValue != null ? String(c.oldValue) : '—', 2800, '#fef0f0'),
-            createCell(c.newValue != null ? String(c.newValue) : '—', 2800, '#fdf6ec'),
+            createCell(c.oldValue != null ? String(c.oldValue) : '—', 2800, false, '#fef0f0'),
+            createCell(c.newValue != null ? String(c.newValue) : '—', 2800, false, '#fdf6ec'),
           ],
         })
       )

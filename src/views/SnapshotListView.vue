@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBaselineStore } from '@/store/baseline'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { Snapshot } from '@/types'
+import type { SnapshotSummary } from '@/types'
 
 const router = useRouter()
 const store = useBaselineStore()
+
+onMounted(() => { store.init() })
 
 // 展开的快照行
 const expandedRows = ref<string[]>([])
 
 // 当前查看的快照详情
-const viewingSnapshot = ref<Snapshot | null>(null)
+const viewingSnapshot = ref<SnapshotSummary | null>(null)
 const showDetailDialog = ref(false)
 
 // 格式化日期
@@ -21,13 +23,13 @@ function formatDate(iso: string): string {
 }
 
 // 查看快照详情
-function viewDetail(snapshot: Snapshot) {
+function viewDetail(snapshot: SnapshotSummary) {
   viewingSnapshot.value = snapshot
   showDetailDialog.value = true
 }
 
 // 删除快照
-async function confirmDelete(snapshot: Snapshot) {
+async function confirmDelete(snapshot: SnapshotSummary) {
   try {
     await ElMessageBox.confirm(
       `确定要删除快照 "${snapshot.name}" 吗？此操作不可撤销。`,
@@ -47,7 +49,7 @@ function createNewSnapshot() {
 }
 
 // 获取关键路径任务名称
-function getCriticalPathNames(snapshot: Snapshot): string {
+function getCriticalPathNames(snapshot: SnapshotSummary): string {
   const taskMap = new Map<string, string>()
   function walk(tasks: any[], depth: number) {
     if (depth > 10) return
@@ -85,7 +87,7 @@ function getCriticalPathNames(snapshot: Snapshot): string {
     </div>
 
     <!-- 快照列表 -->
-    <el-card shadow="hover" v-if="store.snapshots.length > 0">
+    <el-card shadow="hover" v-if="store.sortedSnapshots.length > 0">
       <el-table
         :data="store.sortedSnapshots"
         stripe
@@ -94,7 +96,7 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         style="width: 100%;"
       >
         <el-table-column type="expand">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <div style="padding: 16px 24px;">
               <el-descriptions :column="3" border size="small">
                 <el-descriptions-item label="快照 ID">{{ row.id }}</el-descriptions-item>
@@ -125,11 +127,11 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         </el-table-column>
 
         <el-table-column prop="name" label="快照名称" min-width="200">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <div style="display: flex; align-items: center; gap: 8px;">
               <el-icon :size="20" color="#409eff"><CameraFilled /></el-icon>
               <span style="font-weight: 600;">{{ row.name }}</span>
-              <el-tag v-if="row.name.includes('V1.0')" type="success" size="small" effect="dark">基线</el-tag>
+              <el-tag v-if="row.isBaseline" type="success" size="small" effect="dark">基线</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -137,13 +139,13 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
 
         <el-table-column label="创建时间" width="180">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <span style="font-size: 13px;">{{ formatDate(row.createdAt) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="任务进度" width="180">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <div style="display: flex; align-items: center; gap: 8px;">
               <el-progress
                 :percentage="row.overallPercentComplete"
@@ -156,7 +158,7 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         </el-table-column>
 
         <el-table-column label="任务统计" width="140">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <el-tag type="success" effect="light" size="small">
               {{ row.completedTasks }}/{{ row.totalTasks }} 已完成
             </el-tag>
@@ -164,7 +166,7 @@ function getCriticalPathNames(snapshot: Snapshot): string {
         </el-table-column>
 
         <el-table-column label="操作" width="240" fixed="right">
-          <template #default="{ row }: { row: Snapshot }">
+          <template #default="{ row }: { row: SnapshotSummary }">
             <el-space>
               <el-button size="small" text type="primary" @click="viewDetail(row)">
                 <el-icon><View /></el-icon> 详情

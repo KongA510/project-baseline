@@ -845,7 +845,8 @@ function buildSnapshot(
   name: string,
   description: string,
   createdAt: string,
-  fixedId: string
+  fixedId: string,
+  isBaseline: boolean
 ): Snapshot {
   const flat = flatTasks(taskTree)
   const leafs = flat.filter(t => t.type !== TaskType.SUMMARY)
@@ -866,6 +867,7 @@ function buildSnapshot(
       leafs.reduce((s, t) => s + t.percentComplete, 0) / Math.max(leafs.length, 1)
     ),
     criticalPath,
+    isBaseline,
     taskTree: JSON.parse(JSON.stringify(taskTree)),
   }
 }
@@ -879,10 +881,14 @@ export function loadMockSnapshots(): Snapshot[] {
   const v2Tree = createPlanV2()
 
   return [
-    buildSnapshot(v1Tree, '基线 V1.0 - 初始计划', '2026年6月初始项目计划基线', '2026-06-01T00:00:00Z', 'SNAP_V1_0'),
-    buildSnapshot(v1Tree, '快照 V1.1 - 设计完成', '设计阶段完成时的状态冻结', '2026-06-28T00:00:00Z', 'SNAP_V1_1'),
-    buildSnapshot(v2Tree, '快照 V2.0 - 采购阶段调整', '采购阶段调整计划，新增安全审查、替换模组采购', '2026-07-20T00:00:00Z', 'SNAP_V2_0'),
+    buildSnapshot(v1Tree, '基线 V1.0 - 初始计划', '2026年6月初始项目计划基线', '2026-06-01T00:00:00Z', 'SNAP_V1_0', true),
+    buildSnapshot(v1Tree, '快照 V1.1 - 设计完成', '设计阶段完成时的状态冻结', '2026-06-28T00:00:00Z', 'SNAP_V1_1', false),
+    buildSnapshot(v2Tree, '快照 V2.0 - 采购阶段调整', '采购阶段调整计划，新增安全审查、替换模组采购', '2026-07-20T00:00:00Z', 'SNAP_V2_0', false),
   ]
+}
+
+export function loadMockSnapshotDetail(id: string): Snapshot | null {
+  return loadMockSnapshots().find(s => s.id === id) ?? null
 }
 
 export { teamMembers }

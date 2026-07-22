@@ -13,7 +13,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useBaselineStore()
 
-onMounted(() => {
+onMounted(async () => {
   store.init()
 
   const id1 = route.params.id1 as string
@@ -21,7 +21,7 @@ onMounted(() => {
 
   if (id1 && id2) {
     store.selectSnapshots(id1, id2)
-    const result = store.runComparison()
+    const result = await store.runComparison()
     if (!result) {
       ElMessage.error('比对失败，请检查快照数据')
       router.push('/compare')
